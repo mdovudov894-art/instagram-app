@@ -650,3 +650,103 @@ html, body {
     .message-wrapper { max-width: 80%; }
     .message-input-area { padding: 10px 14px; }
 }
+
+
+
+/* --- ИСЛОҲИ БЛОКИ ҶАВОБ (REPLY БОРИК ВА ЗЕБО) --- */
+.voice-reply-wrap {
+    padding: 6px 10px 4px 10px !important;
+    background: rgba(255, 255, 255, 0.1) !important; /* Хира ва шево */
+    border-radius: 14px 14px 0 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    max-width: 240px !important; /* Паҳнои маҳдуд ва борик */
+    width: 100%;
+}
+
+/* Навиштаҷоти дохили ҷавоб */
+.voice-reply-wrap .reply-name {
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    color: #fff !important;
+    margin-bottom: 2px;
+}
+
+.voice-reply-wrap .reply-text {
+    font-size: 12px !important;
+    color: rgba(255, 255, 255, 0.75) !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100% !important;
+}
+
+/* Пайваст кардани ҷавоб бо худи паёми овозӣ */
+.voice-reply-wrap + .voice-message {
+    border-radius: 0 0 4px 18px !important;
+    background: var(--sent) !important;
+}
+
+
+/* --- ИСЛОҲИ СИСТЕМАИ САБТИ ОВОЗ (INPUT & RECORDING) --- */
+.message-input-area {
+    padding: 10px 16px !important;
+    background: var(--bg);
+    position: relative;
+}
+
+/* Панели сабти овоз, ки бояд болои инпут зебо истад */
+.recording-indicator {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px !important;
+    background: #1c1c1e !important; /* Ранги торики касбӣ */
+    border: 1px solid var(--border);
+    border-radius: 20px !important;
+    font-size: 14px;
+    position: absolute;
+    top: -50px; /* Онро ба болои инпут мебарорад */
+    left: 16px;
+    right: 16px;
+    z-index: 5;
+    box-shadow: 0 -4px 12px rgba(0,0,0,0.5);
+    animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+    from { transform: translateY(10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.recording-indicator button {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: none !important;
+    color: var(--text) !important;
+    padding: 6px 12px !important;
+    border-radius: 12px !important;
+    font-weight: 600;
+    font-size: 12px !important;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.recording-indicator button:hover {
+    background: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Тугмаи сурхи ҳазф */
+.recording-indicator button:first-of-type {
+    color: #ff453a !important; 
+}
+
+/* Тугмаи фиристодан */
+.recording-indicator button:last-child {
+    color: var(--accent) !important;
+}
+
+/* Тугмаи микрофон дар ҳолати сабт */
+.voice-btn.recording {
+    background: #ff3b30 !important;
+    color: #fff !important;
+    box-shadow: 0 0 12px rgba(255, 59, 48, 0.6);
+}

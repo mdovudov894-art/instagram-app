@@ -2,14 +2,13 @@
 <html lang="tg">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Chat App</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
 
-    <!-- AUTH SCREEN -->
     <div id="authScreen" class="auth-screen">
         <div class="auth-container">
             <div class="auth-logo">
@@ -21,13 +20,13 @@
                 <button class="auth-tab" onclick="showTab('register')">Регистрация</button>
             </div>
             <div id="loginForm" class="auth-form">
-                <input type="text" id="loginUsername" placeholder="Номи корбар" />
+                <input type="text" id="loginUsername" placeholder="Номи корбар" autocomplete="off"/>
                 <input type="password" id="loginPassword" placeholder="Парол" />
                 <button onclick="login()">Войти</button>
                 <p id="loginError" class="error-msg"></p>
             </div>
             <div id="registerForm" class="auth-form hidden">
-                <input type="text" id="regUsername" placeholder="Номи корбар" />
+                <input type="text" id="regUsername" placeholder="Номи корбар" autocomplete="off"/>
                 <input type="password" id="regPassword" placeholder="Парол (камаш 6 аломат)" />
                 <button onclick="register()">Регистрация</button>
                 <p id="registerError" class="error-msg"></p>
@@ -35,14 +34,18 @@
         </div>
     </div>
 
-    <!-- MAIN APP -->
     <div id="mainApp" class="main-app hidden">
-
-        <!-- SIDEBAR -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <span id="myUsername" class="my-username"></span>
-                <button class="logout-btn" onclick="logout()"><i class="fa-solid fa-right-from-bracket"></i></button>
+                <div class="header-btns">
+                    <button class="icon-btn" onclick="showChangeUsername()">
+                        <i class="fa-solid fa-pen"></i>
+                    </button>
+                    <button class="icon-btn" onclick="logout()">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                    </button>
+                </div>
             </div>
             <div class="search-box">
                 <i class="fa-solid fa-magnifying-glass"></i>
@@ -51,7 +54,6 @@
             <div class="users-list" id="usersList"></div>
         </div>
 
-        <!-- CHAT AREA -->
         <div class="chat-area" id="chatArea">
             <div class="chat-default" id="chatDefault">
                 <i class="fa-solid fa-message"></i>
@@ -59,19 +61,35 @@
             </div>
             <div class="chat-screen hidden" id="chatScreen">
                 <div class="chat-header">
-                    <button class="back-btn" onclick="goBack()"><i class="fa-solid fa-arrow-left"></i></button>
+                    <button class="back-btn" onclick="goBack()">
+                        <i class="fa-solid fa-arrow-left"></i>
+                    </button>
                     <div class="chat-header-info">
                         <div class="chat-avatar" id="chatAvatar"></div>
-                        <span id="chatUsername"></span>
+                        <div class="chat-header-text">
+                            <span id="chatUsername"></span>
+                            <span class="chat-status" id="chatStatus"></span>
+                        </div>
                     </div>
                 </div>
 
                 <div class="messages-container" id="messagesContainer"></div>
 
-                <div class="message-input-area">
+                <div class="message-input-area" id="messageInputArea">
+                    <div class="reply-box hidden" id="replyBox">
+                        <div class="reply-box-content">
+                            <div class="reply-box-bar"></div>
+                            <div class="reply-box-info">
+                                <span class="reply-name" id="replyName"></span>
+                                <span class="reply-text" id="replyText"></span>
+                            </div>
+                        </div>
+                        <button onclick="cancelReply()"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
                     <div class="input-row">
-                        <input type="text" id="messageInput" placeholder="Паём нависед..."
-                               onkeypress="if(event.key==='Enter') sendMessage()" />
+                        <textarea id="messageInput" placeholder="Паём нависед..." rows="1"
+                            oninput="autoResize(this); handleTyping()"
+                            onkeydown="handleKeyDown(event)"></textarea>
                         <button class="send-btn" onclick="sendMessage()">
                             <i class="fa-solid fa-paper-plane"></i>
                         </button>
@@ -86,7 +104,7 @@
                         <button onclick="cancelRecording()">
                             <i class="fa-solid fa-trash"></i> Ҳазф
                         </button>
-                        <button onclick="stopRecording()" style="color:#0095f6">
+                        <button onclick="stopRecording()">
                             <i class="fa-solid fa-paper-plane"></i> Фиристед
                         </button>
                     </div>
@@ -95,17 +113,65 @@
         </div>
     </div>
 
-    <!-- REACTION PICKER -->
-    <div class="reaction-picker hidden" id="reactionPicker">
-        <span onclick="setReaction('❤️')">❤️</span>
-        <span onclick="setReaction('😂')">😂</span>
-        <span onclick="setReaction('😮')">😮</span>
-        <span onclick="setReaction('😢')">😢</span>
-        <span onclick="setReaction('😡')">😡</span>
-        <span onclick="setReaction('👍')">👍</span>
-        <span onclick="setReaction('👎')">👎</span>
-        <span onclick="setReaction('🔥')">🔥</span>
+    <!-- CONTEXT MENU -->
+    <div class="context-menu hidden" id="contextMenu">
+        <div class="context-reactions">
+            <span onclick="setReaction('❤️')">❤️</span>
+            <span onclick="setReaction('😂')">😂</span>
+            <span onclick="setReaction('😮')">😮</span>
+            <span onclick="setReaction('😢')">😢</span>
+            <span onclick="setReaction('😡')">😡</span>
+            <span onclick="setReaction('👍')">👍</span>
+            <span onclick="setReaction('👎')">👎</span>
+            <span onclick="setReaction('🔥')">🔥</span>
+        </div>
+        <div class="context-divider"></div>
+        <button onclick="contextReply()"><i class="fa-solid fa-reply"></i> Ҷавоб додан</button>
+        <button onclick="contextDelete()" class="delete-btn"><i class="fa-solid fa-trash"></i> Ҳазф кардан</button>
     </div>
+
+    <!-- CONFIRM DIALOG -->
+    <div class="dialog-overlay hidden" id="dialogOverlay">
+        <div class="dialog-box">
+            <p id="dialogMessage"></p>
+            <div class="dialog-btns">
+                <button class="dialog-cancel" id="dialogCancelBtn">Не</button>
+                <button class="dialog-confirm" id="dialogConfirmBtn">Ҳа</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- DELETE DIALOG -->
+    <div class="dialog-overlay hidden" id="deleteDialogOverlay">
+        <div class="dialog-box">
+            <p>Паёмро чӣ тавр ҳазф кунем?</p>
+            <div class="dialog-btns" style="flex-direction:column; gap:8px;">
+                <button class="dialog-confirm" id="deleteForAllBtn" style="background:#ff4444;">
+                    <i class="fa-solid fa-trash"></i> Барои ҳама ҳазф кун
+                </button>
+                <button class="dialog-confirm" id="deleteForMeBtn" style="background:var(--bg3); color:var(--text); border:1px solid var(--border);">
+                    <i class="fa-solid fa-user"></i> Танҳо аз худам ҳазф кун
+                </button>
+                <button class="dialog-cancel" id="deleteCancelBtn">Бекор</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CHANGE USERNAME DIALOG -->
+    <div class="dialog-overlay hidden" id="changeUsernameDialog">
+        <div class="dialog-box">
+            <h3 style="margin-bottom:16px; font-size:16px;">Иваз кардани ном</h3>
+            <input type="text" id="newUsernameInput" placeholder="Номи нав" class="dialog-input" />
+            <p id="changeUsernameError" class="error-msg" style="margin-top:8px;"></p>
+            <div class="dialog-btns" style="margin-top:16px;">
+                <button class="dialog-cancel" onclick="hideChangeUsername()">Бекор</button>
+                <button class="dialog-confirm" style="background:var(--accent);" onclick="changeUsername()">Захира</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST -->
+    <div class="toast hidden" id="toast"></div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="app.js"></script>

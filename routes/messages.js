@@ -17,16 +17,17 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
     cloudinary,
     params: async (req, file) => ({
-        resource_type: 'video',
+        resource_type: 'video', // Барои аудио .webm ҳамин тип лозим аст
         folder: 'chat-voice-messages',
         format: 'webm',
         public_id: `voice_${Date.now()}_${Math.round(Math.random() * 1e9)}`
     })
 });
 
+// Муддати қабули файлро барои 'voice' ва 'audio' умумӣ мекунем
 const upload = multer({
     storage,
-    limits: { fileSize: 10 * 1024 * 1024 }
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB лимит
 });
 
 // Auth Middleware
@@ -44,7 +45,7 @@ const authMiddleware = (req, res, next) => {
 
 const PAGE_SIZE = 30;
 
-// Паёмҳоро гирифтан
+// Паёмҳоро гирифтан бо пагинация
 router.get('/:receiver', authMiddleware, async (req, res) => {
     try {
         const { before } = req.query;
@@ -111,11 +112,14 @@ router.post('/send', authMiddleware, async (req, res) => {
     }
 });
 
-// Голосовой паём — Cloudinary
-router.post('/voice', authMiddleware, upload.single('audio'), async (req, res) => {
+// Голосовой паём — Ҳам 'voice' ва ҳам 'audio'-ро қабул мекунад, то баг нашавад!
+router.post('/voice', authMiddleware, upload.any(), async (req, res) => {
     try {
         const { receiver, duration, replyToId } = req.body;
-        if (!req.file) return res.status(400).json({ message: 'Файл нест!' });
+        
+        // Файли боршударо меёбем (хоҳ номаш voice бошад, хоҳ audio)
+        const file = req.files && req.files[0];
+        if (!file) return res.status(400).json({ message: 'Файл ёфт нашуд дар сервер!' });
         if (!receiver) return res.status(400).json({ message: 'Гиранда нест!' });
 
         let replyData = null;
@@ -131,8 +135,8 @@ router.post('/voice', authMiddleware, upload.single('audio'), async (req, res) =
             }
         }
 
-        // Cloudinary secure_url
-        const voiceUrl = req.file.path || req.file.secure_url;
+        // URL-и бехатари Cloudinary-ро мегирем
+        const voiceUrl = file.path || file.secure_url;
 
         const message = new Message({
             sender: req.username,
@@ -146,7 +150,7 @@ router.post('/voice', authMiddleware, upload.single('audio'), async (req, res) =
         res.json(message);
     } catch (err) {
         console.log('Voice error:', err);
-        res.status(500).json({ message: 'Хатогӣ: ' + err.message });
+        res.status(500).json({ message: 'Хатогӣ ҳангоми боркунӣ: ' + err.message });
     }
 });
 

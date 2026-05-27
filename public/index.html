@@ -3,46 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Chat App</title>
+    <title>ChatApp</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
 
+    <!-- AUTH -->
     <div id="authScreen" class="auth-screen">
         <div class="auth-container">
             <div class="auth-logo">
-                <i class="fa-solid fa-message"></i>
+                <div class="auth-logo-icon">
+                    <i class="fa-solid fa-bolt"></i>
+                </div>
                 <h1>ChatApp</h1>
+                <p>Бо дӯстонат пайваст шав</p>
             </div>
             <div class="auth-tabs">
                 <button class="auth-tab active" onclick="showTab('login')">Войти</button>
                 <button class="auth-tab" onclick="showTab('register')">Регистрация</button>
             </div>
             <div id="loginForm" class="auth-form">
-                <input type="text" id="loginUsername" placeholder="Номи корбар" autocomplete="off"/>
-                <input type="password" id="loginPassword" placeholder="Парол" />
-                <button onclick="login()">Войти</button>
+                <div class="input-group">
+                    <i class="fa-solid fa-user"></i>
+                    <input type="text" id="loginUsername" placeholder="Номи корбар" autocomplete="off"/>
+                </div>
+                <div class="input-group">
+                    <i class="fa-solid fa-lock"></i>
+                    <input type="password" id="loginPassword" placeholder="Парол" />
+                </div>
+                <button class="auth-btn" onclick="login()">
+                    <span>Войти</span>
+                    <i class="fa-solid fa-arrow-right"></i>
+                </button>
                 <p id="loginError" class="error-msg"></p>
             </div>
             <div id="registerForm" class="auth-form hidden">
-                <input type="text" id="regUsername" placeholder="Номи корбар" autocomplete="off"/>
-                <input type="password" id="regPassword" placeholder="Парол (камаш 6 аломат)" />
-                <button onclick="register()">Регистрация</button>
+                <div class="input-group">
+                    <i class="fa-solid fa-user"></i>
+                    <input type="text" id="regUsername" placeholder="Номи корбар" autocomplete="off"/>
+                </div>
+                <div class="input-group">
+                    <i class="fa-solid fa-lock"></i>
+                    <input type="password" id="regPassword" placeholder="Парол (камаш 6 аломат)" />
+                </div>
+                <button class="auth-btn" onclick="register()">
+                    <span>Регистрация</span>
+                    <i class="fa-solid fa-arrow-right"></i>
+                </button>
                 <p id="registerError" class="error-msg"></p>
             </div>
         </div>
     </div>
 
+    <!-- MAIN APP -->
     <div id="mainApp" class="main-app hidden">
+
+        <!-- SIDEBAR -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <span id="myUsername" class="my-username"></span>
+                <div class="sidebar-user">
+                    <div class="my-avatar" id="myAvatar"></div>
+                    <span id="myUsername" class="my-username"></span>
+                </div>
                 <div class="header-btns">
-                    <button class="icon-btn" onclick="showChangeUsername()">
+                    <button class="icon-btn" onclick="showChangeUsername()" title="Иваз кардани ном">
                         <i class="fa-solid fa-pen"></i>
                     </button>
-                    <button class="icon-btn" onclick="logout()">
+                    <button class="icon-btn" onclick="logout()" title="Баромадан">
                         <i class="fa-solid fa-right-from-bracket"></i>
                     </button>
                 </div>
@@ -54,10 +82,14 @@
             <div class="users-list" id="usersList"></div>
         </div>
 
+        <!-- CHAT AREA -->
         <div class="chat-area" id="chatArea">
             <div class="chat-default" id="chatDefault">
-                <i class="fa-solid fa-message"></i>
-                <p>Корбореро интихоб кунед</p>
+                <div class="chat-default-icon">
+                    <i class="fa-solid fa-comments"></i>
+                </div>
+                <h3>Хуш омадед!</h3>
+                <p>Корбореро интихоб кунед ва чат оғоз кунед</p>
             </div>
             <div class="chat-screen hidden" id="chatScreen">
                 <div class="chat-header">
@@ -100,12 +132,12 @@
                     <div class="recording-indicator hidden" id="recordingIndicator">
                         <div class="recording-dot"></div>
                         <span id="recordingTime">0:00</span>
-                        <span>сабт мешавад...</span>
+                        <span class="rec-label">сабт мешавад...</span>
                         <button onclick="cancelRecording()">
-                            <i class="fa-solid fa-trash"></i> Ҳазф
+                            <i class="fa-solid fa-trash"></i>
                         </button>
-                        <button onclick="stopRecording()">
-                            <i class="fa-solid fa-paper-plane"></i> Фиристед
+                        <button onclick="stopRecording()" class="send-rec-btn">
+                            <i class="fa-solid fa-paper-plane"></i>
                         </button>
                     </div>
                 </div>
@@ -124,9 +156,18 @@
             <span onclick="setReaction('👍')">👍</span>
             <span onclick="setReaction('👎')">👎</span>
             <span onclick="setReaction('🔥')">🔥</span>
-            <span onclick="setReaction('🤣')">🤣</span>
-            <span onclick="setReaction('😘')">😘</span>
-            <span onclick="setReaction('😆')">😆</span>
+            <span onclick="setReaction('🎉')">🎉</span>
+            <span onclick="setReaction('💯')">💯</span>
+            <span onclick="setReaction('😍')">😍</span>
+            <span onclick="setReaction('🤔')">🤔</span>
+            <span onclick="setReaction('😴')">😴</span>
+            <span onclick="setReaction('🥳')">🥳</span>
+            <span onclick="setReaction('💪')">💪</span>
+            <span onclick="setReaction('🙏')">🙏</span>
+            <span onclick="setReaction('😎')">😎</span>
+            <span onclick="setReaction('❓')">❓</span>
+            <span onclick="setReaction('✅')">✅</span>
+            <span onclick="setReaction('💔')">💔</span>
         </div>
         <div class="context-divider"></div>
         <button onclick="contextReply()"><i class="fa-solid fa-reply"></i> Ҷавоб додан</button>
@@ -160,12 +201,15 @@
         </div>
     </div>
 
-    <!-- CHANGE USERNAME DIALOG -->
+    <!-- CHANGE USERNAME -->
     <div class="dialog-overlay hidden" id="changeUsernameDialog">
         <div class="dialog-box">
-            <h3 style="margin-bottom:16px; font-size:16px;">Иваз кардани ном</h3>
-            <input type="text" id="newUsernameInput" placeholder="Номи нав" class="dialog-input" />
-            <p id="changeUsernameError" class="error-msg" style="margin-top:8px;"></p>
+            <h3 style="margin-bottom:16px; font-size:16px; color:var(--text);">✏️ Иваз кардани ном</h3>
+            <div class="input-group" style="margin-bottom:8px;">
+                <i class="fa-solid fa-user"></i>
+                <input type="text" id="newUsernameInput" placeholder="Номи нав" style="background:none; border:none; outline:none; color:var(--text); font-size:15px; width:100%;"/>
+            </div>
+            <p id="changeUsernameError" class="error-msg" style="margin-top:4px;"></p>
             <div class="dialog-btns" style="margin-top:16px;">
                 <button class="dialog-cancel" onclick="hideChangeUsername()">Бекор</button>
                 <button class="dialog-confirm" style="background:var(--accent);" onclick="changeUsername()">Захира</button>

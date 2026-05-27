@@ -26,8 +26,9 @@ let isTypingSent = false;
 let isLoadingMore = false;
 let hasMoreMessages = true;
 let oldestTimestamp = null;
+const audioInstances = new Map();
+const pendingMessages = new Map(); // tempId -> msgData
 
-// Socket с токеном
 const socket = io({ auth: { token } });
 
 // ========== INIT ==========
@@ -210,15 +211,11 @@ async function changeUsername() {
     try {
         const res = await fetch('/api/auth/change-username', {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + token
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
             body: JSON.stringify({ newUsername })
         });
         const data = await res.json();
         if (!res.ok) { errorEl.textContent = data.message; return; }
-
         const oldUsername = myUsername;
         token = data.token;
         myUsername = data.username;
@@ -344,17 +341,10 @@ async function loadMessages() {
         const messages = await res.json();
         const container = document.getElementById('messagesContainer');
         container.innerHTML = '';
-
         if (messages.length < 30) hasMoreMessages = false;
         if (messages.length > 0) oldestTimestamp = messages[0].timestamp;
-
         messages.forEach(msg => renderMessage(msg));
-
-        // Железно поён
-        requestAnimationFrame(() => {
-            container.scrollTop = container.scrollHeight;
-        });
-
+        container.scrollTop = container.scrollHeight;
         messages.forEach(msg => {
             if (msg.sender === currentChat && !msg.seen) markSeen(msg._id);
         });
@@ -366,27 +356,17 @@ async function loadMessages() {
 async function loadMoreMessages() {
     if (!hasMoreMessages || !oldestTimestamp || !currentChat) return;
     isLoadingMore = true;
-
     const container = document.getElementById('messagesContainer');
     const prevScrollHeight = container.scrollHeight;
     const prevScrollTop = container.scrollTop;
-
     try {
-        const res = await fetch(`/api/messages/${currentChat}?before=${encodeURIComponent(oldestTimestamp)}`, {
+        const res = await fetch(`/api/messages/${currentChat}?before=${oldestTimestamp}`, {
             headers: { 'Authorization': 'Bearer ' + token }
         });
         const messages = await res.json();
-
-        if (messages.length === 0) {
-            hasMoreMessages = false;
-            isLoadingMore = false;
-            return;
-        }
-
+        if (messages.length === 0) { hasMoreMessages = false; isLoadingMore = false; return; }
         if (messages.length < 30) hasMoreMessages = false;
         oldestTimestamp = messages[0].timestamp;
-
-        // Боло илова кун
         const fragment = document.createDocumentFragment();
         messages.forEach(msg => {
             if (!document.getElementById(`msg_${msg._id}`)) {
@@ -394,14 +374,8 @@ async function loadMoreMessages() {
                 if (el) fragment.appendChild(el);
             }
         });
-
         container.insertBefore(fragment, container.firstChild);
-
-        // Скролл position нигоҳ дор — дар ҳамон ҷой бимон
-        requestAnimationFrame(() => {
-            container.scrollTop = container.scrollHeight - prevScrollHeight + prevScrollTop;
-        });
-
+        container.scrollTop = prevScrollTop + (container.scrollHeight - prevScrollHeight);
     } catch (err) {
         console.log('Хатогӣ:', err);
     }
@@ -434,7 +408,7 @@ function createMessageElement(msg, isPending = false) {
 
     let replyHTML = '';
     if (msg.replyTo && msg.replyTo._id) {
-        const replyText = msg.replyTo.type === 'voice' ? '🎤 Голос' : escapeHtml(msg.replyTo.body || '').substring(0, 40);
+        const replyText = msg.replyTo.type === 'voice' ? '🎤 Голос' : escapeHtml(msg.replyTo.body || '').substring(0, 35);
         replyHTML = `
             <div class="reply-preview" onclick="scrollToMsg('${msg.replyTo._id}')">
                 <span class="reply-name">${escapeHtml(msg.replyTo.sender)}</span>
@@ -480,6 +454,7 @@ function createMessageElement(msg, isPending = false) {
     wrapper.addEventListener('click', (e) => {
         if (e.target.closest('.reply-preview')) return;
         if (e.target.closest('.voice-play-btn')) return;
+        if (e.target.closest('.voice-progress')) return;
         if (e.target.closest('.reactions-row')) return;
         if (msg.deletedBySender || msg.deletedByReceiver) return;
         showContextMenu(e, msg);
@@ -497,7 +472,7 @@ function renderMessage(msg, isPending = false) {
 
 function renderVoiceHTML(msg, replyHTML = '') {
     const dur = msg.duration && msg.duration > 0 ? formatDuration(msg.duration) : '0:00';
-    const heights = [7,12,17,9,15,13,8,19,12,15,7,13,17,9,12];
+    const heights = [5,9,14,7,12,10,6,16,9,12,5,10,14,7,9,11,6,14,8,12];
     const waves = heights.map(h => `<span style="height:${h}px"></span>`).join('');
     return `
         <div class="message-bubble voice-bubble">
@@ -507,11 +482,127 @@ function renderVoiceHTML(msg, replyHTML = '') {
                     onclick="toggleAudio(event, '${msg._id}', '${msg.voiceUrl}', ${msg.duration || 0})">
                     <i class="fa-solid fa-play"></i>
                 </button>
-                <div class="voice-waves" id="waves_${msg._id}">${waves}</div>
-                <span class="voice-duration" id="dur_${msg._id}">${dur}</span>
+                <div class="voice-content">
+                    <div class="voice-waves" id="waves_${msg._id}">${waves}</div>
+                    <div class="voice-progress-wrap">
+                        <div class="voice-progress" id="progress_${msg._id}">
+                            <div class="voice-progress-bar" id="progressBar_${msg._id}"></div>
+                        </div>
+                        <span class="voice-duration" id="dur_${msg._id}">${dur}</span>
+                    </div>
+                </div>
             </div>
         </div>
     `;
+}
+
+// ========== AUDIO PLAYER ==========
+function stopCurrentAudio() {
+    if (currentAudio) {
+        currentAudio.pause();
+        if (currentAudioMsgId) {
+            const icon = document.querySelector(`#playBtn_${currentAudioMsgId} i`);
+            const waves = document.getElementById(`waves_${currentAudioMsgId}`);
+            const bar = document.getElementById(`progressBar_${currentAudioMsgId}`);
+            if (icon) icon.className = 'fa-solid fa-play';
+            if (waves) waves.classList.remove('playing');
+            if (bar) bar.style.width = '0%';
+        }
+        currentAudio = null;
+        currentAudioMsgId = null;
+    }
+}
+
+function toggleAudio(event, msgId, voiceUrl, duration) {
+    event.stopPropagation();
+
+    const btn = document.getElementById(`playBtn_${msgId}`);
+    const icon = btn ? btn.querySelector('i') : null;
+    const waves = document.getElementById(`waves_${msgId}`);
+    const durEl = document.getElementById(`dur_${msgId}`);
+    const bar = document.getElementById(`progressBar_${msgId}`);
+
+    // Агар ҳамин паём — play/pause
+    if (currentAudioMsgId === msgId && currentAudio) {
+        if (!currentAudio.paused) {
+            currentAudio.pause();
+            if (icon) icon.className = 'fa-solid fa-play';
+            if (waves) waves.classList.remove('playing');
+        } else {
+            currentAudio.play().catch(() => {});
+            if (icon) icon.className = 'fa-solid fa-pause';
+            if (waves) waves.classList.add('playing');
+        }
+        return;
+    }
+
+    // Дигар аудиоро бандед
+    stopCurrentAudio();
+
+    let audio = audioInstances.get(msgId);
+    if (!audio) {
+        audio = new Audio(voiceUrl);
+        audioInstances.set(msgId, audio);
+
+        audio.onloadedmetadata = () => {
+            if (durEl && audio.duration && isFinite(audio.duration)) {
+                durEl.textContent = formatDuration(Math.round(audio.duration));
+            }
+        };
+
+        audio.ontimeupdate = () => {
+            if (currentAudioMsgId !== msgId) return;
+            if (audio.duration && isFinite(audio.duration)) {
+                const pct = (audio.currentTime / audio.duration) * 100;
+                if (bar) bar.style.width = pct + '%';
+                const remaining = audio.duration - audio.currentTime;
+                if (durEl) durEl.textContent = formatDuration(Math.round(remaining));
+            }
+        };
+
+        audio.onended = () => {
+            if (icon) icon.className = 'fa-solid fa-play';
+            if (waves) waves.classList.remove('playing');
+            if (bar) bar.style.width = '0%';
+            if (durEl) durEl.textContent = formatDuration(duration || 0);
+            currentAudio = null;
+            currentAudioMsgId = null;
+        };
+
+        audio.onerror = () => {
+            if (icon) icon.className = 'fa-solid fa-play';
+            if (waves) waves.classList.remove('playing');
+            showToast('Голосовой паём бор карда нашуд!');
+            currentAudio = null;
+            currentAudioMsgId = null;
+            audioInstances.delete(msgId);
+        };
+    }
+
+    // Progress click
+    const progressEl = document.getElementById(`progress_${msgId}`);
+    if (progressEl) {
+        progressEl.onclick = (e) => {
+            e.stopPropagation();
+            if (!audio.duration) return;
+            const rect = progressEl.getBoundingClientRect();
+            const pct = (e.clientX - rect.left) / rect.width;
+            audio.currentTime = pct * audio.duration;
+        };
+    }
+
+    currentAudio = audio;
+    currentAudioMsgId = msgId;
+
+    if (icon) icon.className = 'fa-solid fa-pause';
+    if (waves) waves.classList.add('playing');
+
+    audio.play().catch(() => {
+        if (icon) icon.className = 'fa-solid fa-play';
+        if (waves) waves.classList.remove('playing');
+        currentAudio = null;
+        currentAudioMsgId = null;
+    });
 }
 
 function scrollToMsg(msgId) {
@@ -527,6 +618,7 @@ function scrollToMsg(msgId) {
 }
 
 function formatDuration(seconds) {
+    if (!seconds || !isFinite(seconds)) return '0:00';
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
@@ -557,8 +649,8 @@ function showContextMenu(e, msg) {
     const menu = document.getElementById('contextMenu');
     menu.classList.remove('hidden');
 
-    const menuW = 240;
-    const menuH = 200;
+    const menuW = 280;
+    const menuH = 220;
     let x = e.clientX;
     let y = e.clientY;
     if (x + menuW > window.innerWidth) x = window.innerWidth - menuW - 8;
@@ -605,12 +697,10 @@ function cancelReply() {
 function handleTyping() {
     if (!currentChat) return;
     autoResize(document.getElementById('messageInput'));
-
     if (!isTypingSent) {
         isTypingSent = true;
         socket.emit('typing', { sender: myUsername, receiver: currentChat });
     }
-
     clearTimeout(typingTimeout);
     typingTimeout = setTimeout(() => {
         isTypingSent = false;
@@ -630,7 +720,7 @@ function autoResize(el) {
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 }
 
-// ========== SEND MESSAGE ==========
+// ========== SEND MESSAGE — офлайн дастгирӣ ==========
 async function sendMessage() {
     const input = document.getElementById('messageInput');
     const body = input.value.trim();
@@ -659,37 +749,40 @@ async function sendMessage() {
         seen: false
     };
 
+    // Дархол нишон деҳ — pending
     renderMessage(tempMsg, true);
     const container = document.getElementById('messagesContainer');
-    requestAnimationFrame(() => {
-        container.scrollTop = container.scrollHeight;
-    });
+    container.scrollTop = container.scrollHeight;
     updateLastMsg(currentChat, body);
 
-    try {
-        const res = await fetch('/api/messages/send', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + token
-            },
-            body: JSON.stringify({
-                receiver: currentChat,
-                body,
-                replyToId: currentReply ? currentReply._id : null
-            })
-        });
-        const msg = await res.json();
-        const tempEl = document.getElementById(`msg_${tempId}`);
-        if (tempEl) tempEl.remove();
-        renderMessage(msg);
-        requestAnimationFrame(() => {
+    // Серверга фиристодан
+    const sendToServer = async () => {
+        try {
+            const res = await fetch('/api/messages/send', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + token
+                },
+                body: JSON.stringify({
+                    receiver: currentChat,
+                    body,
+                    replyToId: currentReply ? currentReply._id : null
+                })
+            });
+            const msg = await res.json();
+            const tempEl = document.getElementById(`msg_${tempId}`);
+            if (tempEl) tempEl.remove();
+            renderMessage(msg);
             container.scrollTop = container.scrollHeight;
-        });
-        socket.emit('sendMessage', { ...msg, receiver: currentChat, sender: myUsername });
-    } catch (err) {
-        console.log('Офлайн:', err);
-    }
+            socket.emit('sendMessage', { ...msg, receiver: currentChat, sender: myUsername });
+        } catch (err) {
+            // Офлайн — pending нигоҳ дор
+            console.log('Офлайн — паём баъдтар мефиристад');
+        }
+    };
+
+    await sendToServer();
 }
 
 // ========== VOICE RECORDING ==========
@@ -766,13 +859,36 @@ function cancelRecording() {
 }
 
 async function sendVoiceMessage(blob, duration) {
+    // Муваққатӣ pending нишон деҳ
+    const tempId = 'temp_voice_' + Date.now();
+    const tempMsg = {
+        _id: tempId,
+        sender: myUsername,
+        receiver: currentChat,
+        type: 'voice',
+        voiceUrl: URL.createObjectURL(blob),
+        duration,
+        replyTo: replyTo ? { ...replyTo } : null,
+        timestamp: new Date(),
+        reactionBySender: '',
+        reactionByReceiver: '',
+        seen: false
+    };
+
+    const currentReply = replyTo ? { ...replyTo } : null;
+    cancelReply();
+
+    renderMessage(tempMsg, true);
+    const container = document.getElementById('messagesContainer');
+    container.scrollTop = container.scrollHeight;
+    updateLastMsg(currentChat, '🎤 Голосовой паём');
+
     try {
         const formData = new FormData();
         formData.append('audio', blob, 'voice.webm');
         formData.append('receiver', currentChat);
         formData.append('duration', duration);
-        if (replyTo) formData.append('replyToId', replyTo._id);
-        cancelReply();
+        if (currentReply) formData.append('replyToId', currentReply._id);
 
         const res = await fetch('/api/messages/voice', {
             method: 'POST',
@@ -780,108 +896,18 @@ async function sendVoiceMessage(blob, duration) {
             body: formData
         });
         const msg = await res.json();
+
+        // Муваққатиро иваз кун
+        const tempEl = document.getElementById(`msg_${tempId}`);
+        if (tempEl) tempEl.remove();
+        audioInstances.delete(tempId);
+
         renderMessage(msg);
-        const container = document.getElementById('messagesContainer');
-        requestAnimationFrame(() => {
-            container.scrollTop = container.scrollHeight;
-        });
+        container.scrollTop = container.scrollHeight;
         socket.emit('sendMessage', { ...msg, receiver: currentChat, sender: myUsername });
-        updateLastMsg(currentChat, '🎤 Голосовой паём');
     } catch (err) {
-        showToast('Голосовой паём фиристода нашуд!');
+        showToast('Голосовой паём фиристода нашуд! Интернетро санҷед.');
     }
-}
-
-// ========== AUDIO PLAYER ==========
-function stopCurrentAudio() {
-    if (currentAudio) {
-        currentAudio.pause();
-        // UI reset
-        if (currentAudioMsgId) {
-            const btn = document.getElementById(`playBtn_${currentAudioMsgId}`);
-            const icon = btn ? btn.querySelector('i') : null;
-            const waves = document.getElementById(`waves_${currentAudioMsgId}`);
-            if (icon) icon.className = 'fa-solid fa-play';
-            if (waves) waves.classList.remove('playing');
-        }
-        currentAudio = null;
-        currentAudioMsgId = null;
-    }
-}
-
-function toggleAudio(event, msgId, voiceUrl, duration) {
-    event.stopPropagation();
-
-    const btn = document.getElementById(`playBtn_${msgId}`);
-    const icon = btn ? btn.querySelector('i') : null;
-    const waves = document.getElementById(`waves_${msgId}`);
-    const durEl = document.getElementById(`dur_${msgId}`);
-
-    // Агар ҳамин паём аллакай кор мекунад
-    if (currentAudioMsgId === msgId && currentAudio) {
-        if (!currentAudio.paused) {
-            // Пауза
-            currentAudio.pause();
-            if (icon) icon.className = 'fa-solid fa-play';
-            if (waves) waves.classList.remove('playing');
-        } else {
-            // Аз ҳамон ҷо идома деҳ
-            currentAudio.play().catch(() => {});
-            if (icon) icon.className = 'fa-solid fa-pause';
-            if (waves) waves.classList.add('playing');
-        }
-        return;
-    }
-
-    // Агар дигар паём кор мекунад — бандаш
-    if (currentAudio) {
-        stopCurrentAudio();
-    }
-
-    // Нав Audio объект созед
-    const audio = new Audio(voiceUrl);
-    currentAudio = audio;
-    currentAudioMsgId = msgId;
-
-    if (icon) icon.className = 'fa-solid fa-pause';
-    if (waves) waves.classList.add('playing');
-
-    // Метаданных бор шуд — давомнокиро нишон деҳ
-    audio.onloadedmetadata = () => {
-        if (audio.duration && isFinite(audio.duration)) {
-            if (durEl) durEl.textContent = formatDuration(audio.duration);
-        }
-    };
-
-    // Вақти воқеиро нишон деҳ
-    audio.ontimeupdate = () => {
-        if (durEl && isFinite(audio.currentTime)) {
-            durEl.textContent = formatDuration(audio.currentTime);
-        }
-    };
-
-    audio.onended = () => {
-        if (icon) icon.className = 'fa-solid fa-play';
-        if (waves) waves.classList.remove('playing');
-        if (durEl) durEl.textContent = formatDuration(duration || 0);
-        currentAudio = null;
-        currentAudioMsgId = null;
-    };
-
-    audio.onerror = () => {
-        if (icon) icon.className = 'fa-solid fa-play';
-        if (waves) waves.classList.remove('playing');
-        currentAudio = null;
-        currentAudioMsgId = null;
-        showToast('Голосовой паём бор карда нашуд!');
-    };
-
-    audio.play().catch(() => {
-        if (icon) icon.className = 'fa-solid fa-play';
-        if (waves) waves.classList.remove('playing');
-        currentAudio = null;
-        currentAudioMsgId = null;
-    });
 }
 
 // ========== REACTION ==========
@@ -892,6 +918,16 @@ async function setReaction(emoji) {
     const wrapper = document.getElementById(`msg_${selectedMessageId}`);
     const isSent = wrapper && wrapper.classList.contains('sent');
     const side = isSent ? 'sender' : 'receiver';
+
+    // Дархол UI навсозӣ
+    const optimisticMsg = {
+        _id: selectedMessageId,
+        reactionBySender: isSent ? emoji : (wrapper?.querySelector('.reaction-badge')?.textContent || ''),
+        reactionByReceiver: !isSent ? emoji : (wrapper?.querySelector('.reaction-badge')?.textContent || ''),
+        sender: contextMsgSender,
+        receiver: contextMsgReceiver
+    };
+    updateReactionInUI(optimisticMsg);
 
     try {
         const res = await fetch(`/api/messages/reaction/${selectedMessageId}`, {
@@ -969,6 +1005,9 @@ async function deleteMessage(msgId, msgSender, msgReceiver) {
         if (!confirmed) return;
     }
 
+    if (currentAudioMsgId === msgId) stopCurrentAudio();
+    audioInstances.delete(msgId);
+
     try {
         const res = await fetch(`/api/messages/${msgId}`, {
             method: 'DELETE',
@@ -979,10 +1018,8 @@ async function deleteMessage(msgId, msgSender, msgReceiver) {
             body: JSON.stringify({ deleteFor })
         });
         const data = await res.json();
-
         const wrapper = document.getElementById(`msg_${msgId}`);
         if (wrapper) wrapper.remove();
-
         socket.emit('deleteMessage', {
             _id: msgId,
             sender: msgSender,
@@ -1039,19 +1076,15 @@ socket.on('userStopTyping', (data) => {
 
 socket.on('newMessage', (msg) => {
     if (msg.sender === myUsername && document.getElementById(`msg_${msg._id}`)) return;
-
     if (currentChat === msg.sender || currentChat === msg.receiver) {
         renderMessage(msg);
         const container = document.getElementById('messagesContainer');
-        requestAnimationFrame(() => {
-            container.scrollTop = container.scrollHeight;
-        });
+        container.scrollTop = container.scrollHeight;
         if (msg.sender === currentChat) markSeen(msg._id);
     } else if (msg.sender !== myUsername) {
         unreadMessages[msg.sender] = (unreadMessages[msg.sender] || 0) + 1;
         renderUsers(allUsers);
     }
-
     if (msg.sender !== myUsername) {
         updateLastMsg(msg.sender, msg.type === 'voice' ? '🎤 Голосовой паём' : msg.body, currentChat !== msg.sender);
     }
@@ -1070,10 +1103,14 @@ socket.on('reactionUpdate', (data) => {
 socket.on('messageDeleted', (data) => {
     const wrapper = document.getElementById(`msg_${data._id}`);
     if (!wrapper) return;
-    if (data.deletedFor === 'all') {
+    if (data.deletedFor === 'all' || data.deletedFor === 'both') {
         wrapper.remove();
+        audioInstances.delete(data._id);
     } else if (data.deletedFor === 'me') {
-        if (myUsername === data.deletedBy) wrapper.remove();
+        if (myUsername === data.deletedBy) {
+            wrapper.remove();
+            audioInstances.delete(data._id);
+        }
     }
 });
 

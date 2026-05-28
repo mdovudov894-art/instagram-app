@@ -27,7 +27,10 @@ let isLoadingMore = false;
 let hasMoreMessages = true;
 let oldestTimestamp = null;
 const audioInstances = new Map();
-const pendingMessages = new Map(); // tempId -> msgData
+
+// Офлайн навбат
+let sendQueue = [];
+let isSending = false;
 
 const socket = io({ auth: { token } });
 
@@ -61,6 +64,33 @@ async function verifyToken() {
         return false;
     }
 }
+
+// ========== OFFLINE QUEUE ==========
+async function processQueue() {
+    if (isSending || sendQueue.length === 0) return;
+    isSending = true;
+
+    while (sendQueue.length > 0) {
+        const task = sendQueue[0];
+        try {
+            await task.execute();
+            sendQueue.shift();
+        } catch (err) {
+            console.log('Навбат хатогӣ:', err);
+            break;
+        }
+    }
+    isSending = false;
+}
+
+window.addEventListener('online', () => {
+    showToast('Интернет пайваст шуд! 🟢', 2000);
+    processQueue();
+});
+
+window.addEventListener('offline', () => {
+    showToast('Интернет нест! 🔴', 2000);
+});
 
 // ========== DIALOG / TOAST ==========
 function showDialog(message) {
@@ -175,6 +205,7 @@ function logout() {
     currentChat = null;
     allUsers = [];
     onlineUsers = new Set();
+    sendQueue = [];
     stopCurrentAudio();
     socket.disconnect();
     document.getElementById('authScreen').classList.remove('hidden');
@@ -185,6 +216,8 @@ function showApp() {
     document.getElementById('authScreen').classList.add('hidden');
     document.getElementById('mainApp').classList.remove('hidden');
     document.getElementById('myUsername').textContent = myUsername;
+    const myAv = document.getElementById('myAvatar');
+    if (myAv) myAv.textContent = myUsername[0].toUpperCase();
     if (!socket.connected) socket.connect();
     loadUsers();
 }
@@ -222,6 +255,8 @@ async function changeUsername() {
         localStorage.setItem('token', token);
         localStorage.setItem('username', myUsername);
         document.getElementById('myUsername').textContent = myUsername;
+        const myAv = document.getElementById('myAvatar');
+        if (myAv) myAv.textContent = myUsername[0].toUpperCase();
         hideChangeUsername();
         showToast('Ном бо муваффақият иваз шуд!');
         socket.emit('changeUsername', { oldUsername, newUsername: myUsername });
@@ -283,6 +318,11 @@ function searchUsers() {
 
 // ========== CHAT ==========
 async function openChat(username) {
+    // Дархол чати қаблиро тоза кун
+    const container = document.getElementById('messagesContainer');
+    container.innerHTML = '';
+    container.onscroll = null;
+
     currentChat = username;
     unreadMessages[username] = 0;
     hasMoreMessages = true;
@@ -297,9 +337,9 @@ async function openChat(username) {
     updateChatStatus(username);
     cancelReply();
     renderUsers(allUsers);
+
     await loadMessages();
 
-    const container = document.getElementById('messagesContainer');
     container.onscroll = () => {
         if (container.scrollTop < 80 && !isLoadingMore && hasMoreMessages) {
             loadMoreMessages();
@@ -330,6 +370,7 @@ function goBack() {
     cancelReply();
     stopCurrentAudio();
     const container = document.getElementById('messagesContainer');
+    container.innerHTML = '';
     container.onscroll = null;
 }
 
@@ -406,9 +447,12 @@ function createMessageElement(msg, isPending = false) {
     wrapper.className = `message-wrapper ${isSent ? 'sent' : 'received'} ${isPending ? 'pending' : ''}`;
     wrapper.id = `msg_${msg._id}`;
 
+    // Свайп барои ответ (мобайл)
+    addSwipeReply(wrapper, msg);
+
     let replyHTML = '';
     if (msg.replyTo && msg.replyTo._id) {
-        const replyText = msg.replyTo.type === 'voice' ? '🎤 Голос' : escapeHtml(msg.replyTo.body || '').substring(0, 35);
+        const replyText = msg.replyTo.type === 'voice' ? '🎤 Голос' : escapeHtml(msg.replyTo.body || '').substring(0, 30);
         replyHTML = `
             <div class="reply-preview" onclick="scrollToMsg('${msg.replyTo._id}')">
                 <span class="reply-name">${escapeHtml(msg.replyTo.sender)}</span>
@@ -451,16 +495,181 @@ function createMessageElement(msg, isPending = false) {
         <div class="message-time">${pendingIcon}${seenHTML}${time}</div>
     `;
 
-    wrapper.addEventListener('click', (e) => {
-        if (e.target.closest('.reply-preview')) return;
-        if (e.target.closest('.voice-play-btn')) return;
-        if (e.target.closest('.voice-progress')) return;
-        if (e.target.closest('.reactions-row')) return;
-        if (msg.deletedBySender || msg.deletedByReceiver) return;
-        showContextMenu(e, msg);
-    });
+    // Контекст меню — клик
+    const bubble = wrapper.querySelector('.message-bubble');
+    if (bubble && !msg.deletedBySender && !msg.deletedByReceiver) {
+        bubble.addEventListener('click', (e) => {
+            if (e.target.closest('.reply-preview')) return;
+            if (e.target.closest('.voice-play-btn')) return;
+            if (e.target.closest('.voice-progress')) return;
+            showInlineMenu(e, msg, wrapper);
+        });
+    }
 
     return wrapper;
+}
+
+// ========== INLINE CONTEXT MENU ==========
+let activeInlineMenu = null;
+
+function showInlineMenu(e, msg, wrapper) {
+    e.stopPropagation();
+
+    // Қаблии менюро бандед
+    closeInlineMenu();
+
+    const isSent = msg.sender === myUsername;
+
+    const menu = document.createElement('div');
+    menu.className = `inline-menu ${isSent ? 'sent-menu' : 'received-menu'}`;
+    menu.id = 'inlineMenu_' + msg._id;
+
+    // 5 реаксияи аввал + "+"
+    const mainReactions = ['❤️', '😂', '😮', '😢', '👍'];
+    const allReactions = ['❤️','😂','😮','😢','😡','👍','👎','🔥','🎉','💯','😍','🤔','😴','🥳','💪','🙏','😎','❓','✅','💔'];
+
+    let reactHtml = '<div class="inline-reactions">';
+    mainReactions.forEach(r => {
+        reactHtml += `<span onclick="setReactionInline('${msg._id}','${r}','${isSent ? 'sender' : 'receiver'}','${escapeAttr(msg.sender)}','${escapeAttr(msg.receiver)}')">${r}</span>`;
+    });
+    reactHtml += `<span class="more-reactions-btn" onclick="toggleMoreReactions(this, '${msg._id}','${isSent ? 'sender' : 'receiver'}','${escapeAttr(msg.sender)}','${escapeAttr(msg.receiver)}')">➕</span>`;
+    reactHtml += '</div>';
+
+    let actionsHtml = '<div class="inline-actions">';
+    actionsHtml += `<button onclick="inlineReply('${msg._id}','${escapeAttr(msg.sender)}',\`${msg.type === 'voice' ? '🎤 Голосовой паём' : escapeHtml(msg.body || '').replace(/`/g, "'")}\`,'${msg.type || 'text'}')"><i class="fa-solid fa-reply"></i> Ҷавоб</button>`;
+    actionsHtml += `<button class="del-btn" onclick="inlineDelete('${msg._id}','${escapeAttr(msg.sender)}','${escapeAttr(msg.receiver)}')"><i class="fa-solid fa-trash"></i> Ҳазф</button>`;
+    actionsHtml += '</div>';
+
+    menu.innerHTML = reactHtml + actionsHtml;
+    wrapper.appendChild(menu);
+    activeInlineMenu = menu;
+
+    // Берун клик — бандед
+    setTimeout(() => {
+        document.addEventListener('click', closeInlineMenuOutside, { once: true });
+    }, 50);
+}
+
+function closeInlineMenu() {
+    if (activeInlineMenu) {
+        activeInlineMenu.remove();
+        activeInlineMenu = null;
+    }
+}
+
+function closeInlineMenuOutside(e) {
+    if (activeInlineMenu && !activeInlineMenu.contains(e.target)) {
+        closeInlineMenu();
+    }
+}
+
+function toggleMoreReactions(btn, msgId, side, msgSender, msgReceiver) {
+    const existing = btn.parentElement.querySelector('.more-reactions-list');
+    if (existing) { existing.remove(); return; }
+    const all = ['😡','👎','🔥','🎉','💯','😍','🤔','😴','🥳','💪','🙏','😎','❓','✅','💔'];
+    const div = document.createElement('div');
+    div.className = 'more-reactions-list';
+    all.forEach(r => {
+        const span = document.createElement('span');
+        span.textContent = r;
+        span.onclick = () => setReactionInline(msgId, r, side, msgSender, msgReceiver);
+        div.appendChild(span);
+    });
+    btn.parentElement.appendChild(div);
+}
+
+async function setReactionInline(msgId, emoji, side, msgSender, msgReceiver) {
+    closeInlineMenu();
+    selectedMessageId = msgId;
+    contextMsgSender = msgSender;
+    contextMsgReceiver = msgReceiver;
+
+    const wrapper = document.getElementById(`msg_${msgId}`);
+    const isSent = wrapper && wrapper.classList.contains('sent');
+
+    try {
+        const res = await fetch(`/api/messages/reaction/${msgId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ reaction: emoji, side })
+        });
+        const updatedMsg = await res.json();
+        updateReactionInUI(updatedMsg);
+        socket.emit('reaction', {
+            _id: msgId, reaction: emoji, side,
+            sender: myUsername, receiver: currentChat,
+            reactionBySender: updatedMsg.reactionBySender,
+            reactionByReceiver: updatedMsg.reactionByReceiver,
+            msgSender: updatedMsg.sender, msgReceiver: updatedMsg.receiver
+        });
+    } catch (err) {
+        console.log('Хатогӣ:', err);
+    }
+}
+
+function inlineReply(msgId, sender, text, type) {
+    closeInlineMenu();
+    setReply(msgId, sender, type === 'voice' ? '🎤 Голосовой паём' : text, type);
+}
+
+async function inlineDelete(msgId, msgSender, msgReceiver) {
+    closeInlineMenu();
+    await deleteMessage(msgId, msgSender, msgReceiver);
+}
+
+// ========== SWIPE TO REPLY (mobile) ==========
+function addSwipeReply(wrapper, msg) {
+    let startX = 0;
+    let startY = 0;
+    let isDragging = false;
+    let swipeTriggered = false;
+
+    wrapper.addEventListener('touchstart', (e) => {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        isDragging = false;
+        swipeTriggered = false;
+    }, { passive: true });
+
+    wrapper.addEventListener('touchmove', (e) => {
+        const dx = e.touches[0].clientX - startX;
+        const dy = Math.abs(e.touches[0].clientY - startY);
+
+        if (dy > 20) return;
+
+        const isSent = msg.sender === myUsername;
+        // Sent: чап тарафга кашидан; Received: рост тарафга
+        const validSwipe = isSent ? dx < -30 : dx > 30;
+
+        if (Math.abs(dx) > 10 && validSwipe) {
+            isDragging = true;
+            const move = Math.min(Math.abs(dx), 60);
+            wrapper.style.transform = isSent ? `translateX(-${move}px)` : `translateX(${move}px)`;
+            wrapper.style.transition = 'none';
+
+            if (Math.abs(dx) > 50 && !swipeTriggered) {
+                swipeTriggered = true;
+                showSwipeReplyIndicator(wrapper, msg);
+            }
+        }
+    }, { passive: true });
+
+    wrapper.addEventListener('touchend', () => {
+        wrapper.style.transform = '';
+        wrapper.style.transition = 'transform 0.2s ease';
+        if (swipeTriggered) {
+            const text = msg.type === 'voice' ? '🎤 Голосовой паём' : (msg.body || '');
+            setReply(msg._id, msg.sender, text, msg.type || 'text');
+        }
+    });
+}
+
+function showSwipeReplyIndicator(wrapper, msg) {
+    const indicator = document.createElement('div');
+    indicator.className = 'swipe-reply-indicator';
+    indicator.innerHTML = '<i class="fa-solid fa-reply"></i>';
+    wrapper.appendChild(indicator);
+    setTimeout(() => indicator.remove(), 600);
 }
 
 function renderMessage(msg, isPending = false) {
@@ -522,7 +731,6 @@ function toggleAudio(event, msgId, voiceUrl, duration) {
     const durEl = document.getElementById(`dur_${msgId}`);
     const bar = document.getElementById(`progressBar_${msgId}`);
 
-    // Агар ҳамин паём — play/pause
     if (currentAudioMsgId === msgId && currentAudio) {
         if (!currentAudio.paused) {
             currentAudio.pause();
@@ -536,7 +744,6 @@ function toggleAudio(event, msgId, voiceUrl, duration) {
         return;
     }
 
-    // Дигар аудиоро бандед
     stopCurrentAudio();
 
     let audio = audioInstances.get(msgId);
@@ -579,21 +786,45 @@ function toggleAudio(event, msgId, voiceUrl, duration) {
         };
     }
 
-    // Progress click
+    // Progress drag
     const progressEl = document.getElementById(`progress_${msgId}`);
-    if (progressEl) {
-        progressEl.onclick = (e) => {
-            e.stopPropagation();
+    if (progressEl && !progressEl._hasListener) {
+        progressEl._hasListener = true;
+
+        let dragging = false;
+
+        const seek = (clientX) => {
             if (!audio.duration) return;
             const rect = progressEl.getBoundingClientRect();
-            const pct = (e.clientX - rect.left) / rect.width;
+            const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
             audio.currentTime = pct * audio.duration;
         };
+
+        progressEl.addEventListener('mousedown', (e) => {
+            e.stopPropagation();
+            dragging = true;
+            seek(e.clientX);
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (dragging) seek(e.clientX);
+        });
+
+        document.addEventListener('mouseup', () => { dragging = false; });
+
+        progressEl.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            seek(e.touches[0].clientX);
+        }, { passive: true });
+
+        progressEl.addEventListener('touchmove', (e) => {
+            e.stopPropagation();
+            seek(e.touches[0].clientX);
+        }, { passive: true });
     }
 
     currentAudio = audio;
     currentAudioMsgId = msgId;
-
     if (icon) icon.className = 'fa-solid fa-pause';
     if (waves) waves.classList.add('playing');
 
@@ -612,7 +843,7 @@ function scrollToMsg(msgId) {
         const bubble = el.querySelector('.message-bubble');
         if (bubble) {
             bubble.classList.add('highlight-anim');
-            setTimeout(() => bubble.classList.remove('highlight-anim'), 1200);
+            setTimeout(() => bubble.classList.remove('highlight-anim'), 1000);
         }
     }
 }
@@ -635,47 +866,6 @@ function escapeAttr(text) {
     if (!text) return '';
     return text.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
 }
-
-// ========== CONTEXT MENU ==========
-function showContextMenu(e, msg) {
-    e.stopPropagation();
-    contextMsgId = msg._id;
-    contextMsgSender = msg.sender;
-    contextMsgReceiver = msg.receiver;
-    contextMsgType = msg.type;
-    contextMsgBody = msg.body || '';
-    selectedMessageId = msg._id;
-
-    const menu = document.getElementById('contextMenu');
-    menu.classList.remove('hidden');
-
-    const menuW = 280;
-    const menuH = 220;
-    let x = e.clientX;
-    let y = e.clientY;
-    if (x + menuW > window.innerWidth) x = window.innerWidth - menuW - 8;
-    if (y + menuH > window.innerHeight) y = window.innerHeight - menuH - 8;
-    if (y < 8) y = 8;
-    menu.style.left = x + 'px';
-    menu.style.top = y + 'px';
-}
-
-function contextReply() {
-    document.getElementById('contextMenu').classList.add('hidden');
-    const text = contextMsgType === 'voice' ? '🎤 Голосовой паём' : contextMsgBody;
-    setReply(contextMsgId, contextMsgSender, text, contextMsgType);
-}
-
-async function contextDelete() {
-    document.getElementById('contextMenu').classList.add('hidden');
-    await deleteMessage(contextMsgId, contextMsgSender, contextMsgReceiver);
-}
-
-document.addEventListener('click', (e) => {
-    if (!e.target.closest('#contextMenu')) {
-        document.getElementById('contextMenu').classList.add('hidden');
-    }
-});
 
 // ========== REPLY ==========
 function setReply(msgId, sender, text, type) {
@@ -720,7 +910,7 @@ function autoResize(el) {
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
 }
 
-// ========== SEND MESSAGE — офлайн дастгирӣ ==========
+// ========== SEND MESSAGE — навбат бо тартиб ==========
 async function sendMessage() {
     const input = document.getElementById('messageInput');
     const body = input.value.trim();
@@ -734,12 +924,13 @@ async function sendMessage() {
 
     const tempId = 'temp_' + Date.now();
     const currentReply = replyTo ? { ...replyTo } : null;
+    const receiver = currentChat;
     cancelReply();
 
     const tempMsg = {
         _id: tempId,
         sender: myUsername,
-        receiver: currentChat,
+        receiver,
         type: 'text',
         body,
         replyTo: currentReply,
@@ -749,43 +940,36 @@ async function sendMessage() {
         seen: false
     };
 
-    // Дархол нишон деҳ — pending
     renderMessage(tempMsg, true);
     const container = document.getElementById('messagesContainer');
     container.scrollTop = container.scrollHeight;
-    updateLastMsg(currentChat, body);
+    updateLastMsg(receiver, body);
 
-    // Серверга фиристодан
-    const sendToServer = async () => {
-        try {
+    // Навбатга илова кун
+    sendQueue.push({
+        tempId,
+        execute: async () => {
             const res = await fetch('/api/messages/send', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + token
-                },
-                body: JSON.stringify({
-                    receiver: currentChat,
-                    body,
-                    replyToId: currentReply ? currentReply._id : null
-                })
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify({ receiver, body, replyToId: currentReply ? currentReply._id : null })
             });
+            if (!res.ok) throw new Error('Server error');
             const msg = await res.json();
             const tempEl = document.getElementById(`msg_${tempId}`);
             if (tempEl) tempEl.remove();
-            renderMessage(msg);
-            container.scrollTop = container.scrollHeight;
-            socket.emit('sendMessage', { ...msg, receiver: currentChat, sender: myUsername });
-        } catch (err) {
-            // Офлайн — pending нигоҳ дор
-            console.log('Офлайн — паём баъдтар мефиристад');
+            if (currentChat === receiver) {
+                renderMessage(msg);
+                container.scrollTop = container.scrollHeight;
+            }
+            socket.emit('sendMessage', { ...msg, receiver, sender: myUsername });
         }
-    };
+    });
 
-    await sendToServer();
+    processQueue();
 }
 
-// ========== VOICE RECORDING ==========
+// ========== VOICE — бо тартиб ==========
 function toggleRecording() {
     if (!isRecording) {
         startRecording();
@@ -794,11 +978,24 @@ function toggleRecording() {
     }
 }
 
+// Voice тугмача
+function handleVoiceBtnClick() {
+    if (isRecording) {
+        stopRecording();
+    } else {
+        startRecording();
+    }
+}
+
 async function startRecording() {
     recordingCancelled = false;
     audioChunks = [];
     recordingSeconds = 0;
     isRecording = true;
+
+    // Input панелро пинҳон кун
+    document.getElementById('inputNormal').classList.add('hidden');
+    document.getElementById('recordingIndicator').classList.remove('hidden');
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -818,17 +1015,18 @@ async function startRecording() {
             stream.getTracks().forEach(t => t.stop());
             clearInterval(recordingTimer);
             isRecording = false;
+            document.getElementById('inputNormal').classList.remove('hidden');
+            document.getElementById('recordingIndicator').classList.add('hidden');
+
             const finalSeconds = recordingSeconds;
             if (recordingCancelled) { audioChunks = []; return; }
             if (audioChunks.length === 0) { showToast('Овоз сабт нашуд!'); return; }
             const actualMime = mediaRecorder.mimeType || 'audio/webm';
             const blob = new Blob(audioChunks, { type: actualMime });
-            await sendVoiceMessage(blob, finalSeconds);
+            await queueVoiceMessage(blob, finalSeconds);
         };
 
         mediaRecorder.start(250);
-        document.getElementById('voiceBtn').classList.add('recording');
-        document.getElementById('recordingIndicator').classList.remove('hidden');
         document.getElementById('recordingTime').textContent = '0:00';
 
         recordingTimer = setInterval(() => {
@@ -837,15 +1035,14 @@ async function startRecording() {
         }, 1000);
     } catch (err) {
         isRecording = false;
+        document.getElementById('inputNormal').classList.remove('hidden');
+        document.getElementById('recordingIndicator').classList.add('hidden');
         showToast('Микрофон дастрас нест!');
     }
 }
 
 function stopRecording() {
     if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
-    isRecording = false;
-    document.getElementById('voiceBtn').classList.remove('recording');
-    document.getElementById('recordingIndicator').classList.add('hidden');
 }
 
 function cancelRecording() {
@@ -853,104 +1050,89 @@ function cancelRecording() {
     clearInterval(recordingTimer);
     isRecording = false;
     if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
-    document.getElementById('voiceBtn').classList.remove('recording');
+    document.getElementById('inputNormal').classList.remove('hidden');
     document.getElementById('recordingIndicator').classList.add('hidden');
     audioChunks = [];
 }
 
-async function sendVoiceMessage(blob, duration) {
-    // Муваққатӣ pending нишон деҳ
+async function queueVoiceMessage(blob, duration) {
     const tempId = 'temp_voice_' + Date.now();
+    const receiver = currentChat;
+    const currentReply = replyTo ? { ...replyTo } : null;
+    cancelReply();
+
     const tempMsg = {
         _id: tempId,
         sender: myUsername,
-        receiver: currentChat,
+        receiver,
         type: 'voice',
         voiceUrl: URL.createObjectURL(blob),
         duration,
-        replyTo: replyTo ? { ...replyTo } : null,
+        replyTo: currentReply,
         timestamp: new Date(),
         reactionBySender: '',
         reactionByReceiver: '',
         seen: false
     };
 
-    const currentReply = replyTo ? { ...replyTo } : null;
-    cancelReply();
-
     renderMessage(tempMsg, true);
     const container = document.getElementById('messagesContainer');
     container.scrollTop = container.scrollHeight;
-    updateLastMsg(currentChat, '🎤 Голосовой паём');
+    updateLastMsg(receiver, '🎤 Голосовой паём');
 
-    try {
-        const formData = new FormData();
-        formData.append('audio', blob, 'voice.webm');
-        formData.append('receiver', currentChat);
-        formData.append('duration', duration);
-        if (currentReply) formData.append('replyToId', currentReply._id);
+    sendQueue.push({
+        tempId,
+        execute: async () => {
+            const formData = new FormData();
+            formData.append('audio', blob, 'voice.webm');
+            formData.append('receiver', receiver);
+            formData.append('duration', duration);
+            if (currentReply) formData.append('replyToId', currentReply._id);
 
-        const res = await fetch('/api/messages/voice', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + token },
-            body: formData
-        });
-        const msg = await res.json();
+            const res = await fetch('/api/messages/voice', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token },
+                body: formData
+            });
+            if (!res.ok) throw new Error('Server error');
+            const msg = await res.json();
 
-        // Муваққатиро иваз кун
-        const tempEl = document.getElementById(`msg_${tempId}`);
-        if (tempEl) tempEl.remove();
-        audioInstances.delete(tempId);
+            const tempEl = document.getElementById(`msg_${tempId}`);
+            if (tempEl) tempEl.remove();
+            audioInstances.delete(tempId);
 
-        renderMessage(msg);
-        container.scrollTop = container.scrollHeight;
-        socket.emit('sendMessage', { ...msg, receiver: currentChat, sender: myUsername });
-    } catch (err) {
-        showToast('Голосовой паём фиристода нашуд! Интернетро санҷед.');
-    }
+            if (currentChat === receiver) {
+                renderMessage(msg);
+                container.scrollTop = container.scrollHeight;
+            }
+            socket.emit('sendMessage', { ...msg, receiver, sender: myUsername });
+        }
+    });
+
+    processQueue();
 }
 
 // ========== REACTION ==========
 async function setReaction(emoji) {
     if (!selectedMessageId) return;
-    document.getElementById('contextMenu').classList.add('hidden');
-
     const wrapper = document.getElementById(`msg_${selectedMessageId}`);
     const isSent = wrapper && wrapper.classList.contains('sent');
     const side = isSent ? 'sender' : 'receiver';
 
-    // Дархол UI навсозӣ
-    const optimisticMsg = {
-        _id: selectedMessageId,
-        reactionBySender: isSent ? emoji : (wrapper?.querySelector('.reaction-badge')?.textContent || ''),
-        reactionByReceiver: !isSent ? emoji : (wrapper?.querySelector('.reaction-badge')?.textContent || ''),
-        sender: contextMsgSender,
-        receiver: contextMsgReceiver
-    };
-    updateReactionInUI(optimisticMsg);
-
     try {
         const res = await fetch(`/api/messages/reaction/${selectedMessageId}`, {
             method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + token
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
             body: JSON.stringify({ reaction: emoji, side })
         });
         const updatedMsg = await res.json();
         updateReactionInUI(updatedMsg);
-
         socket.emit('reaction', {
-            _id: selectedMessageId,
-            reaction: emoji,
-            side,
-            sender: myUsername,
-            receiver: currentChat,
+            _id: selectedMessageId, reaction: emoji, side,
+            sender: myUsername, receiver: currentChat,
             reactionBySender: updatedMsg.reactionBySender,
             reactionByReceiver: updatedMsg.reactionByReceiver,
-            msgSender: updatedMsg.sender,
-            msgReceiver: updatedMsg.receiver
+            msgSender: updatedMsg.sender, msgReceiver: updatedMsg.receiver
         });
     } catch (err) {
         console.log('Хатогӣ:', err);
@@ -1011,21 +1193,15 @@ async function deleteMessage(msgId, msgSender, msgReceiver) {
     try {
         const res = await fetch(`/api/messages/${msgId}`, {
             method: 'DELETE',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + token
-            },
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
             body: JSON.stringify({ deleteFor })
         });
         const data = await res.json();
         const wrapper = document.getElementById(`msg_${msgId}`);
         if (wrapper) wrapper.remove();
         socket.emit('deleteMessage', {
-            _id: msgId,
-            sender: msgSender,
-            receiver: msgReceiver,
-            deletedBy: myUsername,
-            deletedFor: data.deletedFor
+            _id: msgId, sender: msgSender, receiver: msgReceiver,
+            deletedBy: myUsername, deletedFor: data.deletedFor
         });
     } catch (err) {
         showToast('Ҳазф карда нашуд!');
@@ -1033,9 +1209,7 @@ async function deleteMessage(msgId, msgSender, msgReceiver) {
 }
 
 // ========== SOCKET EVENTS ==========
-socket.on('connect_error', (err) => {
-    console.log('Socket хатогӣ:', err.message);
-});
+socket.on('connect_error', (err) => console.log('Socket хатогӣ:', err.message));
 
 socket.on('onlineList', (users) => {
     onlineUsers = new Set(users);
@@ -1106,11 +1280,9 @@ socket.on('messageDeleted', (data) => {
     if (data.deletedFor === 'all' || data.deletedFor === 'both') {
         wrapper.remove();
         audioInstances.delete(data._id);
-    } else if (data.deletedFor === 'me') {
-        if (myUsername === data.deletedBy) {
-            wrapper.remove();
-            audioInstances.delete(data._id);
-        }
+    } else if (data.deletedFor === 'me' && myUsername === data.deletedBy) {
+        wrapper.remove();
+        audioInstances.delete(data._id);
     }
 });
 

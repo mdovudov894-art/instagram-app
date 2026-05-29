@@ -999,12 +999,21 @@ async function startRecording() {
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        // Муайян кардани формат ва кодек
         let mimeType = 'audio/webm;codecs=opus';
         if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/webm';
         if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/ogg;codecs=opus';
         if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
 
-        const options = mimeType ? { mimeType } : {};
+        // Илова кардани танзимоти фишурдасозӣ (bitrate: 16000) барои суръат дар Render
+        const options = mimeType ? { 
+            mimeType: mimeType,
+            audioBitsPerSecond: 16000 
+        } : { 
+            audioBitsPerSecond: 16000 
+        };
+        
         mediaRecorder = new MediaRecorder(stream, options);
 
         mediaRecorder.ondataavailable = e => {
@@ -1012,23 +1021,25 @@ async function startRecording() {
         };
 
         mediaRecorder.onstop = async () => {
-            stream.getTracks().forEach(t => t.stop());
+            stream.getTracks().forEach(track => track.stop());
             clearInterval(recordingTimer);
             isRecording = false;
+            
             document.getElementById('inputNormal').classList.remove('hidden');
             document.getElementById('recordingIndicator').classList.add('hidden');
 
             const finalSeconds = recordingSeconds;
             if (recordingCancelled) { audioChunks = []; return; }
             if (audioChunks.length === 0) { showToast('Овоз сабт нашуд!'); return; }
+            
             const actualMime = mediaRecorder.mimeType || 'audio/webm';
             const blob = new Blob(audioChunks, { type: actualMime });
             await queueVoiceMessage(blob, finalSeconds);
         };
 
+        // Сабтро бо қисмҳои 250 миллисониягӣ сар мекунем
         mediaRecorder.start(250);
         document.getElementById('recordingTime').textContent = '0:00';
-
         recordingTimer = setInterval(() => {
             recordingSeconds++;
             document.getElementById('recordingTime').textContent = formatDuration(recordingSeconds);

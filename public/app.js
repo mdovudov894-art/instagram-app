@@ -33,7 +33,8 @@ let sendQueue = [];
 let isSending = false;
 
 const socket = io({ auth: { token } });
-
+const sentSound = new Audio('/sounds/sent.mp3');
+const receivedSound = new Audio('/sounds/reseived.mp3'); // бо ҳамон номи худат навиштам
 // ========== INIT ==========
 document.addEventListener('DOMContentLoaded', async () => {
     if (token && myUsername) {
@@ -960,6 +961,16 @@ async function sendMessage() {
             if (tempEl) tempEl.remove();
             if (currentChat === receiver) {
                 renderMessage(msg);
+                if (currentChat === receiver) {
+                renderMessage(msg);
+                sentSound.play().catch(e => console.log("Хатогии садо:", e)); // Илова кун!
+                container.scrollTop = container.scrollHeight;
+            }
+                if (currentChat === receiver) {
+                renderMessage(msg);
+                sentSound.play().catch(e => console.log("Хатогии садо:", e)); // Илова кун!
+                container.scrollTop = container.scrollHeight;
+            }
                 container.scrollTop = container.scrollHeight;
             }
             socket.emit('sendMessage', { ...msg, receiver, sender: myUsername });
@@ -1262,6 +1273,9 @@ socket.on('userStopTyping', (data) => {
 socket.on('newMessage', (msg) => {
     if (msg.sender === myUsername && document.getElementById(`msg_${msg._id}`)) return;
     if (currentChat === msg.sender || currentChat === msg.receiver) {
+        if (msg.sender !== myUsername) {
+            receivedSound.play().catch(e => console.log("Хатогии садо:", e));
+        }
         renderMessage(msg);
         const container = document.getElementById('messagesContainer');
         container.scrollTop = container.scrollHeight;

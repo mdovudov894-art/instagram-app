@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Chat</title>
+    <title>ChatApp</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -16,8 +16,8 @@
                 <div class="auth-logo-icon">
                     <i class="fa-solid fa-bolt"></i>
                 </div>
-                <h1>ChatAPP</h1>
-                <p>InstaTaj</p>
+                <h1>ChatApp</h1>
+                <p>Бо дӯстонат пайваст шав</p>
             </div>
             <div class="auth-tabs">
                 <button class="auth-tab active" onclick="showTab('login')">Войти</button>
@@ -108,6 +108,7 @@
                 <div class="messages-container" id="messagesContainer"></div>
 
                 <div class="message-input-area" id="messageInputArea">
+                    <!-- Reply box -->
                     <div class="reply-box hidden" id="replyBox">
                         <div class="reply-box-content">
                             <div class="reply-box-bar"></div>
@@ -118,60 +119,37 @@
                         </div>
                         <button onclick="cancelReply()"><i class="fa-solid fa-xmark"></i></button>
                     </div>
-                    <div class="input-row">
+
+                    <!-- Normal input -->
+                    <div class="input-row" id="inputNormal">
                         <textarea id="messageInput" placeholder="Паём нависед..." rows="1"
                             oninput="autoResize(this); handleTyping()"
                             onkeydown="handleKeyDown(event)"></textarea>
                         <button class="send-btn" onclick="sendMessage()">
                             <i class="fa-solid fa-paper-plane"></i>
                         </button>
-                        <button class="voice-btn" id="voiceBtn" onclick="toggleRecording()">
+                        <button class="voice-btn" id="voiceBtn" onclick="startRecording()">
                             <i class="fa-solid fa-microphone"></i>
                         </button>
                     </div>
+
+                    <!-- Recording indicator -->
                     <div class="recording-indicator hidden" id="recordingIndicator">
-                        <div class="recording-dot"></div>
-                        <span id="recordingTime">0:00</span>
-                        <span class="rec-label">сабт мешавад...</span>
-                        <button onclick="cancelRecording()">
+                        <button class="rec-cancel-btn" onclick="cancelRecording()">
                             <i class="fa-solid fa-trash"></i>
                         </button>
-                        <button onclick="stopRecording()" class="send-rec-btn">
+                        <div class="rec-center">
+                            <div class="recording-dot"></div>
+                            <span id="recordingTime">0:00</span>
+                            <span class="rec-label">сабт мешавад...</span>
+                        </div>
+                        <button class="rec-send-btn" onclick="stopRecording()">
                             <i class="fa-solid fa-paper-plane"></i>
                         </button>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
-
-    <!-- CONTEXT MENU -->
-    <div class="context-menu hidden" id="contextMenu">
-        <div class="context-reactions">
-            <span onclick="setReaction('❤️')">❤️</span>
-            <span onclick="setReaction('😂')">😂</span>
-            <span onclick="setReaction('😮')">😮</span>
-            <span onclick="setReaction('😢')">😢</span>
-            <span onclick="setReaction('😡')">😡</span>
-            <span onclick="setReaction('👍')">👍</span>
-            <span onclick="setReaction('👎')">👎</span>
-            <span onclick="setReaction('🔥')">🔥</span>
-            <span onclick="setReaction('🎉')">🎉</span>
-            <span onclick="setReaction('💯')">💯</span>
-            <span onclick="setReaction('😍')">😍</span>
-            <span onclick="setReaction('🤔')">🤔</span>
-            <span onclick="setReaction('😴')">😴</span>
-            <span onclick="setReaction('🥳')">🥳</span>
-            <span onclick="setReaction('💪')">💪</span>
-            <span onclick="setReaction('🙏')">🙏</span>
-            <span onclick="setReaction('😎')">😎</span>
-            <span onclick="setReaction('❓')">❓</span>
-            <span onclick="setReaction('✅')">✅</span>
-            <span onclick="setReaction('💔')">💔</span>
-        </div>
-        <div class="context-divider"></div>
-        <button onclick="contextReply()"><i class="fa-solid fa-reply"></i> Ҷавоб додан</button>
-        <button onclick="contextDelete()" class="delete-btn"><i class="fa-solid fa-trash"></i> Ҳазф кардан</button>
     </div>
 
     <!-- CONFIRM DIALOG -->
@@ -190,7 +168,7 @@
         <div class="dialog-box">
             <p>Паёмро чӣ тавр ҳазф кунем?</p>
             <div class="dialog-btns" style="flex-direction:column; gap:8px;">
-                <button class="dialog-confirm" id="deleteForAllBtn" style="background:#ff4444;">
+                <button class="dialog-confirm" id="deleteForAllBtn" style="background:#f87171;">
                     <i class="fa-solid fa-trash"></i> Барои ҳама ҳазф кун
                 </button>
                 <button class="dialog-confirm" id="deleteForMeBtn" style="background:var(--bg3); color:var(--text); border:1px solid var(--border);">
@@ -207,7 +185,8 @@
             <h3 style="margin-bottom:16px; font-size:16px; color:var(--text);">✏️ Иваз кардани ном</h3>
             <div class="input-group" style="margin-bottom:8px;">
                 <i class="fa-solid fa-user"></i>
-                <input type="text" id="newUsernameInput" placeholder="Номи нав" style="background:none; border:none; outline:none; color:var(--text); font-size:15px; width:100%;"/>
+                <input type="text" id="newUsernameInput" placeholder="Номи нав"
+                    style="background:none; border:none; outline:none; color:var(--text); font-size:15px; width:100%;"/>
             </div>
             <p id="changeUsernameError" class="error-msg" style="margin-top:4px;"></p>
             <div class="dialog-btns" style="margin-top:16px;">

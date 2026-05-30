@@ -40,6 +40,13 @@ router.post('/register', async (req, res) => {
         const user = new User({ username, password: hashedPassword });
         await user.save();
         const token = jwt.sign({ username }, process.env.JWT_SECRET, { expiresIn: '30d' });
+
+        // Ба ҳама онлайнҳо хабар деҳ
+        try {
+            const { io } = require('../server');
+            io.emit('newUserRegistered', { username });
+        } catch(e) {}
+
         res.json({ token, username });
     } catch (err) {
         console.log('Register error:', err.message);

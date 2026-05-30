@@ -350,16 +350,28 @@ async function openChat(username) {
 
 function updateChatStatus(username) {
     const statusEl = document.getElementById('chatStatus');
-    if (!statusEl) return;
-    if (typingTimers[username] === 'typing') {
-        statusEl.innerHTML = '<span class="typing-dots"><span></span><span></span><span></span></span> нависонда истодааст...';
-        statusEl.className = 'chat-status typing';
-    } else if (onlineUsers.has(username)) {
-        statusEl.textContent = 'онлайн';
-        statusEl.className = 'chat-status online';
-    } else {
-        statusEl.textContent = '';
-        statusEl.className = 'chat-status';
+    if (statusEl) {
+        if (typingTimers[username] === 'typing') {
+            statusEl.textContent = 'нависонда истодааст...';
+            statusEl.className = 'chat-status typing';
+        } else if (onlineUsers.has(username)) {
+            statusEl.textContent = 'онлайн';
+            statusEl.className = 'chat-status online';
+        } else {
+            statusEl.textContent = '';
+            statusEl.className = 'chat-status';
+        }
+    }
+    // Typing bubble дар поёни чат
+    const typingBubble = document.getElementById('typingBubbleIndicator');
+    if (typingBubble) {
+        if (typingTimers[username] === 'typing' && currentChat === username) {
+            typingBubble.classList.add('visible');
+            const container = document.getElementById('messagesContainer');
+            if (container) container.scrollTop = container.scrollHeight;
+        } else {
+            typingBubble.classList.remove('visible');
+        }
     }
 }
 
@@ -961,16 +973,7 @@ async function sendMessage() {
             if (tempEl) tempEl.remove();
             if (currentChat === receiver) {
                 renderMessage(msg);
-                if (currentChat === receiver) {
-                renderMessage(msg);
-                sentSound.play().catch(e => console.log("Хатогии садо:", e)); // Илова кун!
-                container.scrollTop = container.scrollHeight;
-            }
-                if (currentChat === receiver) {
-                renderMessage(msg);
-                sentSound.play().catch(e => console.log("Хатогии садо:", e)); // Илова кун!
-                container.scrollTop = container.scrollHeight;
-            }
+                sentSound.play().catch(e => console.log("Хатогии садо:", e));
                 container.scrollTop = container.scrollHeight;
             }
             socket.emit('sendMessage', { ...msg, receiver, sender: myUsername });
@@ -1323,6 +1326,13 @@ socket.on('usernameChanged', (data) => {
     if (currentChat === data.oldUsername) {
         currentChat = data.newUsername;
         document.getElementById('chatUsername').textContent = data.newUsername;
+    }
+});
+
+socket.on('newUserRegistered', (data) => {
+    if (data.username !== myUsername && !allUsers.find(u => u.username === data.username)) {
+        allUsers.push({ username: data.username });
+        renderUsers(allUsers);
     }
 });
 

@@ -435,6 +435,54 @@ html, body {
 .chat-status.online { color: var(--online); }
 .chat-status.typing { color: var(--accent2); }
 
+/* TYPING INDICATOR — дар поёни чат, мисли Instagram */
+.typing-bubble-indicator {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px 2px;
+    animation: typingFadeIn 0.25s ease;
+}
+.typing-bubble-indicator.visible { display: flex; }
+
+@keyframes typingFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.typing-bubble {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--received);
+    border: 1px solid var(--border);
+    border-radius: 18px 18px 18px 4px;
+    padding: 8px 14px;
+    width: fit-content;
+}
+
+.typing-bubble span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent2);
+    display: inline-block;
+    animation: typingDot 1.3s infinite ease-in-out;
+}
+.typing-bubble span:nth-child(2) { animation-delay: 0.2s; }
+.typing-bubble span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typingDot {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+    30% { transform: translateY(-5px); opacity: 1; }
+}
+
+.typing-name-label {
+    font-size: 11px;
+    color: var(--text2);
+    margin-left: 2px;
+}
+
 /* ========== MESSAGES ========== */
 .messages-container {
     flex: 1;
@@ -462,13 +510,21 @@ html, body {
 .message-wrapper.pending { opacity: 0.65; }
 
 @keyframes highlightAnim {
-    0% { transform: scale(1); filter: brightness(1); }
-    35% { transform: scale(1.05); filter: brightness(1.6); }
-    70% { transform: scale(1.02); filter: brightness(1.2); }
-    100% { transform: scale(1); filter: brightness(1); }
+    0%   { transform: scale(1);    filter: brightness(1);   box-shadow: none; }
+    30%  { transform: scale(1.04); filter: brightness(1.5); box-shadow: 0 0 18px rgba(167,139,250,0.5); }
+    70%  { transform: scale(1.02); filter: brightness(1.2); }
+    100% { transform: scale(1);    filter: brightness(1);   box-shadow: none; }
 }
+.highlight-anim { animation: highlightAnim 0.9s cubic-bezier(0.4,0,0.2,1); }
 
-.highlight-anim { animation: highlightAnim 0.8s ease; }
+/* Паём пайдо шудан — slide in */
+@keyframes msgSlideIn {
+    from { opacity: 0; transform: translateY(10px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.message-wrapper {
+    animation: msgSlideIn 0.22s cubic-bezier(0.4,0,0.2,1);
+}
 
 /* MESSAGE BUBBLE */
 .message-bubble {
@@ -506,46 +562,51 @@ html, body {
     box-shadow: none !important;
 }
 
-/* REPLY PREVIEW — хурд ва компакт */
+/* REPLY PREVIEW — WhatsApp/Instagram стил */
 .reply-preview {
-    background: rgba(0,0,0,0.18);
-    border-left: 2px solid rgba(255,255,255,0.5);
-    border-radius: 5px;
-    padding: 3px 7px;
-    margin-bottom: 5px;
+    background: rgba(0,0,0,0.22);
+    border-left: 3px solid rgba(255,255,255,0.7);
+    border-radius: 6px;
+    padding: 5px 9px;
+    margin-bottom: 7px;
     cursor: pointer;
     overflow: hidden;
-    max-width: 100%;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    transition: opacity 0.15s;
 }
+.reply-preview:active { opacity: 0.7; }
 
 .received .reply-preview {
-    background: rgba(124,106,247,0.1);
+    background: rgba(124,106,247,0.13);
     border-left-color: var(--accent2);
 }
 
 .reply-preview .reply-name {
     display: block;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
-    color: rgba(255,255,255,0.85);
+    color: rgba(255,255,255,0.95);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.3;
+    line-height: 1.4;
+    margin-bottom: 2px;
 }
 
 .received .reply-preview .reply-name { color: var(--accent2); }
 
 .reply-preview .reply-text {
     display: block;
-    font-size: 10px;
-    color: rgba(255,255,255,0.55);
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 160px;
-    line-height: 1.3;
+    line-height: 1.4;
 }
+.received .reply-preview .reply-text { color: rgba(200,200,230,0.55); }
 
 /* VOICE BUBBLE */
 .voice-bubble {

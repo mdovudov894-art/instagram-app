@@ -361,21 +361,76 @@ function showProfile() {
     if (!modal) return;
     modal.classList.remove('hidden');
     document.getElementById('profileUsername').textContent = myUsername;
-    // Аватар
     const bigAv = document.getElementById('profileBigAvatar');
     if (myAvatar) {
         bigAv.style.backgroundImage = `url(${myAvatar})`;
         bigAv.style.backgroundSize = 'cover';
         bigAv.style.backgroundPosition = 'center';
-        bigAv.querySelector('.avatar-edit-icon').style.background = 'rgba(0,0,0,0.4)';
+        bigAv.onclick = (e) => {
+            if (!e.target.closest('.avatar-edit-icon')) showUserProfile(myUsername);
+        };
     } else {
         bigAv.style.backgroundImage = '';
+        bigAv.onclick = (e) => {
+            if (!e.target.closest('.avatar-edit-icon')) document.getElementById('avatarFileInput')?.click();
+        };
     }
     // Visibility
     const vis = localStorage.getItem('myVisibility') || 'everyone';
     document.querySelectorAll('input[name="visibility"]').forEach(r => {
         r.checked = r.value === vis;
     });
+}
+
+// Visibility user picker
+function showVisibilityPicker(radio) {
+    const overlay = document.getElementById('visibilityPickerOverlay');
+    const list = document.getElementById('visibilityUserList');
+    if (!overlay || !list) return;
+    const selectedList = JSON.parse(localStorage.getItem('visibilitySelectedUsers') || '[]');
+    list.innerHTML = '';
+    allUsers.forEach(user => {
+        const checked = selectedList.includes(user.username);
+        const avatarUrl = userAvatars[user.username] || '';
+        const avatarHtml = avatarUrl
+            ? `<img src="${avatarUrl}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;"/>`
+            : `<div style="width:32px;height:32px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;color:#000;font-size:13px;">${user.username[0].toUpperCase()}</div>`;
+        const div = document.createElement('label');
+        div.className = 'user-picker-item';
+        div.innerHTML = `
+            ${avatarHtml}
+            <span class="upi-name">${escapeHtml(user.username)}</span>
+            <input type="checkbox" value="${escapeHtml(user.username)}" ${checked ? 'checked' : ''}/>
+        `;
+        list.appendChild(div);
+    });
+    overlay.classList.remove('hidden');
+}
+
+function hideVisibilityPicker() {
+    document.getElementById('visibilityPickerOverlay')?.classList.add('hidden');
+    // Reset radio if cancelled
+    const vis = localStorage.getItem('myVisibility') || 'everyone';
+    document.querySelectorAll('input[name="visibility"]').forEach(r => r.checked = r.value === vis);
+}
+
+async function saveVisibilitySelected() {
+    const checkboxes = document.querySelectorAll('#visibilityUserList input[type="checkbox"]:checked');
+    const selected = Array.from(checkboxes).map(c => c.value);
+    localStorage.setItem('myVisibility', 'selected');
+    localStorage.setItem('visibilitySelectedUsers', JSON.stringify(selected));
+    document.getElementById('visibilityPickerOverlay')?.classList.add('hidden');
+    document.querySelectorAll('input[name="visibility"]').forEach(r => r.checked = r.value === 'selected');
+    try {
+        await fetch('/api/auth/online-visibility', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ visibility: 'selected', visibleTo: selected })
+        });
+        socket.emit('updateVisibility', { visibility: 'selected', visibleTo: selected });
+        const statusEl = document.getElementById('visibilityStatus');
+        if (statusEl) { statusEl.textContent = `✅ ${selected.length} нафар интихоб шуд`; setTimeout(() => { if(statusEl) statusEl.textContent=''; }, 2500); }
+    } catch(e) { showToast('Хатогӣ!'); }
 }
 
 function hideProfile() {
@@ -425,9 +480,28 @@ async function saveVisibility(radio) {
 
 function showUserProfile(username) {
     if (!username) return;
-    const av = userAvatars[username] || '';
+    const overlay = document.getElementById('profileViewerOverlay');
+    if (!overlay) return;
+    const avEl = document.getElementById('profileViewerAvatar');
+    const nameEl = document.getElementById('profileViewerName');
+    const statusEl = document.getElementById('profileViewerStatus');
+    const avatarUrl = username === myUsername ? myAvatar : (userAvatars[username] || '');
+    const isMe = username === myUsername;
     const isOnline = onlineUsers.has(username);
-    showToast(`${username} — ${isOnline ? '🟢 онлайн' : '⚫ офлайн'}`, 2500);
+    if (avEl) {
+        if (avatarUrl) {
+            avEl.innerHTML = `<img src="${avatarUrl}" alt="${escapeHtml(username)}"/>`;
+        } else {
+            avEl.textContent = username[0].toUpperCase();
+        }
+    }
+    if (nameEl) nameEl.textContent = username;
+    if (statusEl) statusEl.textContent = isMe ? '' : (isOnline ? '🟢 Онлайн' : '⚫ Офлайн');
+    overlay.classList.remove('hidden');
+}
+
+function hideProfileViewer() {
+    document.getElementById('profileViewerOverlay')?.classList.add('hidden');
 }
 
 function confirmLogout() {
@@ -435,15 +509,20 @@ function confirmLogout() {
     logout();
 }
 
-// №17 — Медиа фиристодан (сурат/видео)
+// №17 — Медиа фиристодан (сурат/видео) — чандто мумкин
 async function sendMedia(input) {
-    if (!input.files || !input.files[0] || !currentChat) return;
-    const file = input.files[0];
-    const isVideo = file.type.startsWith('video/');
-    const tempId = 'temp_media_' + Date.now();
-    const receiver = currentChat;
+    if (!input.files || !input.files.length || !currentChat) return;
+    const files = Array.from(input.files);
+    for (const file of files) {
+        await sendSingleMedia(file);
+    }
+    input.value = '';
+}
 
-    // Пешнамоиш
+async function sendSingleMedia(file) {
+    const isVideo = file.type.startsWith('video/');
+    const tempId = 'temp_media_' + Date.now() + '_' + Math.random();
+    const receiver = currentChat;
     const objectUrl = URL.createObjectURL(file);
     const tempMsg = {
         _id: tempId,
@@ -468,28 +547,30 @@ async function sendMedia(input) {
     if (replyTo) formData.append('replyToId', replyTo._id);
     cancelReply();
 
-    try {
-        const res = await fetch('/api/messages/media', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + token },
-            body: formData
-        });
-        if (!res.ok) throw new Error('Error');
-        const msg = await res.json();
-        const tempEl = document.getElementById(`msg_${tempId}`);
-        if (tempEl) tempEl.remove();
-        if (currentChat === receiver) {
-            renderMessage(msg);
-            container.scrollTop = container.scrollHeight;
+    // Навбатга илова
+    sendQueue.push({
+        tempId,
+        receiver,
+        tempMsg,
+        execute: async () => {
+            const res = await fetch('/api/messages/media', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token },
+                body: formData
+            });
+            if (!res.ok) throw new Error('Error');
+            const msg = await res.json();
+            const tempEl = document.getElementById(`msg_${tempId}`);
+            if (tempEl) tempEl.remove();
+            if (currentChat === receiver) {
+                renderMessage(msg);
+                container.scrollTop = container.scrollHeight;
+            }
+            socket.emit('sendMessage', { ...msg, receiver, sender: myUsername });
+            URL.revokeObjectURL(objectUrl);
         }
-        socket.emit('sendMessage', { ...msg, receiver, sender: myUsername });
-        URL.revokeObjectURL(objectUrl);
-    } catch(e) {
-        showToast('Бор карда нашуд!');
-        const tempEl = document.getElementById(`msg_${tempId}`);
-        if (tempEl) tempEl.remove();
-    }
-    input.value = '';
+    });
+    processQueue();
 }
 
 // №17 — Image viewer
@@ -636,6 +717,15 @@ async function openChat(username) {
     renderUsers(allUsers);
 
     await loadMessages();
+
+    // Pending паёмҳои навбатро нишон деҳ
+    sendQueue.forEach(task => {
+        if (task.receiver === username && task.tempMsg && !document.getElementById(`msg_${task.tempId}`)) {
+            renderMessage(task.tempMsg, true);
+        }
+    });
+    const c2 = document.getElementById('messagesContainer');
+    if (c2 && sendQueue.some(t => t.receiver === username)) c2.scrollTop = c2.scrollHeight;
 
     container.onscroll = () => {
         if (container.scrollTop < 80 && !isLoadingMore && hasMoreMessages) {
@@ -888,20 +978,14 @@ let activeInlineMenu = null;
 
 function showInlineMenu(e, msg, wrapper) {
     e.stopPropagation();
-
-    // Қаблии менюро бандед
     closeInlineMenu();
 
     const isSent = msg.sender === myUsername;
-
     const menu = document.createElement('div');
     menu.className = `inline-menu ${isSent ? 'sent-menu' : 'received-menu'}`;
     menu.id = 'inlineMenu_' + msg._id;
 
-    // 5 реаксияи аввал + "+"
     const mainReactions = ['❤️', '😂', '😮', '😢', '👍'];
-    const allReactions = ['❤️','😂','😮','😢','😡','👍','👎','🔥','🎉','💯','😍','🤔','😴','🥳','💪','🙏','😎','❓','✅','💔'];
-
     let reactHtml = '<div class="inline-reactions">';
     mainReactions.forEach(r => {
         reactHtml += `<span onclick="setReactionInline('${msg._id}','${r}','${isSent ? 'sender' : 'receiver'}','${escapeAttr(msg.sender)}','${escapeAttr(msg.receiver)}')">${r}</span>`;
@@ -915,10 +999,30 @@ function showInlineMenu(e, msg, wrapper) {
     actionsHtml += '</div>';
 
     menu.innerHTML = reactHtml + actionsHtml;
-    wrapper.appendChild(menu);
+    menu.style.position = 'fixed';
+    menu.style.zIndex = '9997';
+    document.body.appendChild(menu);
     activeInlineMenu = menu;
 
-    // Берун клик — бандед
+    // Дар ҳамон ҷойи зер кардан нишон деҳ
+    requestAnimationFrame(() => {
+        const mW = menu.offsetWidth || 250;
+        const mH = menu.offsetHeight || 110;
+        const tapX = e.clientX || (e.touches && e.touches[0]?.clientX) || window.innerWidth / 2;
+        const tapY = e.clientY || (e.touches && e.touches[0]?.clientY) || window.innerHeight / 2;
+
+        let top = tapY - mH - 10;
+        if (top < 8) top = tapY + 10;
+        if (top + mH > window.innerHeight - 8) top = window.innerHeight - mH - 8;
+
+        let left = isSent ? tapX - mW : tapX;
+        if (left + mW > window.innerWidth - 8) left = window.innerWidth - mW - 8;
+        if (left < 8) left = 8;
+
+        menu.style.top = top + 'px';
+        menu.style.left = left + 'px';
+    });
+
     setTimeout(() => {
         document.addEventListener('click', closeInlineMenuOutside, { once: true });
     }, 50);
@@ -991,50 +1095,61 @@ async function inlineDelete(msgId, msgSender, msgReceiver) {
     await deleteMessage(msgId, msgSender, msgReceiver);
 }
 
-// ========== SWIPE TO REPLY (mobile) ==========
+// ========== SWIPE TO REPLY (mobile) — Instagram style ==========
 function addSwipeReply(wrapper, msg) {
     let startX = 0;
     let startY = 0;
-    let isDragging = false;
     let swipeTriggered = false;
+    let isHorizontal = false;
+    const TRIGGER_THRESHOLD = 72;
+    const MAX_DRAG = 80;
 
     wrapper.addEventListener('touchstart', (e) => {
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
-        isDragging = false;
         swipeTriggered = false;
+        isHorizontal = false;
+        wrapper.style.transition = 'none';
     }, { passive: true });
 
     wrapper.addEventListener('touchmove', (e) => {
         const dx = e.touches[0].clientX - startX;
         const dy = Math.abs(e.touches[0].clientY - startY);
 
-        if (dy > 20) return;
+        // Агар вертикал бошад — ҳеҷ кор накун
+        if (!isHorizontal && dy > Math.abs(dx) + 5) return;
+        if (Math.abs(dx) > 8) isHorizontal = true;
+        if (!isHorizontal) return;
 
         const isSent = msg.sender === myUsername;
-        // Sent: чап тарафга кашидан; Received: рост тарафга
-        const validSwipe = isSent ? dx < -30 : dx > 30;
+        const validSwipe = isSent ? dx < -8 : dx > 8;
+        if (!validSwipe) return;
 
-        if (Math.abs(dx) > 10 && validSwipe) {
-            isDragging = true;
-            const move = Math.min(Math.abs(dx), 60);
-            wrapper.style.transform = isSent ? `translateX(-${move}px)` : `translateX(${move}px)`;
-            wrapper.style.transition = 'none';
+        // Мулоим кашидан — resistance (resistance effect)
+        const absDx = Math.min(Math.abs(dx), MAX_DRAG);
+        const dampened = absDx * (1 - absDx / (MAX_DRAG * 2.5));
+        const move = Math.max(0, Math.min(dampened, MAX_DRAG * 0.75));
 
-            if (Math.abs(dx) > 50 && !swipeTriggered) {
-                swipeTriggered = true;
-                showSwipeReplyIndicator(wrapper, msg);
-            }
+        wrapper.style.transform = isSent ? `translateX(-${move}px)` : `translateX(${move}px)`;
+
+        if (Math.abs(dx) > TRIGGER_THRESHOLD && !swipeTriggered) {
+            swipeTriggered = true;
+            showSwipeReplyIndicator(wrapper, msg);
+            // Тетру вибрация (агар мавҷуд бошад)
+            if (navigator.vibrate) navigator.vibrate(30);
         }
     }, { passive: true });
 
     wrapper.addEventListener('touchend', () => {
+        // Spring-back мулоим
+        wrapper.style.transition = 'transform 0.35s cubic-bezier(0.34,1.56,0.64,1)';
         wrapper.style.transform = '';
-        wrapper.style.transition = 'transform 0.2s ease';
         if (swipeTriggered) {
-            const text = msg.type === 'voice' ? '🎤 Голосовой паём' : (msg.body || '');
+            const text = getLastMsgText(msg);
             setReply(msg._id, msg.sender, text, msg.type || 'text');
         }
+        // Reset
+        setTimeout(() => { wrapper.style.transition = ''; }, 350);
     });
 }
 
@@ -1335,6 +1450,8 @@ async function sendMessage() {
     // Навбатга илова кун
     sendQueue.push({
         tempId,
+        receiver,
+        tempMsg,
         execute: async () => {
             const res = await fetch('/api/messages/send', {
                 method: 'POST',
@@ -1486,6 +1603,8 @@ async function queueVoiceMessage(blob, duration) {
 
     sendQueue.push({
         tempId,
+        receiver,
+        tempMsg,
         execute: async () => {
             const formData = new FormData();
             formData.append('audio', blob, 'voice.webm');
@@ -1773,6 +1892,19 @@ socket.on('reactionUpdate', (data) => {
         sender: data.msgSender,
         receiver: data.msgReceiver
     });
+    // Тартиб навсозӣ + notification
+    if (data.reaction) {
+        const partner = data.sender !== myUsername ? data.sender : null;
+        if (partner) {
+            const notifText = `${partner} реаксия монд: ${data.reaction}`;
+            if (currentChat !== partner) {
+                updateLastMsg(partner, `Реаксия: ${data.reaction}`, true, Date.now());
+                showPushNotification(partner, notifText, userAvatars[partner] || '');
+            } else {
+                updateLastMsg(partner, `Реаксия: ${data.reaction}`, false, Date.now());
+            }
+        }
+    }
 });
 
 socket.on('messageDeleted', (data) => {

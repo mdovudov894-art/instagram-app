@@ -120,8 +120,8 @@
                     </div>
 
                     <div class="input-row" id="inputNormal">
-                        <!-- №17 — Hidden file input -->
-                        <input type="file" id="mediaFileInput" accept="image/*,video/*" style="display:none" onchange="sendMedia(this)"/>
+                        <!-- №17 — Hidden file input (multiple for video) -->
+                        <input type="file" id="mediaFileInput" accept="image/*,video/*" multiple style="display:none" onchange="sendMedia(this)"/>
                         <button class="media-btn" onclick="document.getElementById('mediaFileInput').click()" title="Сурат/Видео">
                             <i class="fa-solid fa-image"></i>
                         </button>
@@ -205,10 +205,10 @@
                 <h3>Профил ва Танзимот</h3>
                 <button class="icon-btn" onclick="hideProfile()"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <!-- Avatar section -->
+    <!-- Avatar section -->
             <div class="profile-avatar-section">
-                <div class="profile-big-avatar" id="profileBigAvatar" onclick="document.getElementById('avatarFileInput').click()">
-                    <div class="avatar-edit-icon"><i class="fa-solid fa-camera"></i></div>
+                <div class="profile-big-avatar" id="profileBigAvatar">
+                    <div class="avatar-edit-icon" onclick="document.getElementById('avatarFileInput').click()"><i class="fa-solid fa-camera"></i></div>
                 </div>
                 <input type="file" id="avatarFileInput" accept="image/*" style="display:none" onchange="uploadAvatar(this)"/>
                 <p class="profile-username" id="profileUsername"></p>
@@ -224,6 +224,10 @@
                     <label class="settings-radio">
                         <input type="radio" name="visibility" value="everyone" onchange="saveVisibility(this)"/>
                         <span>Ҳама</span>
+                    </label>
+                    <label class="settings-radio">
+                        <input type="radio" name="visibility" value="selected" onchange="showVisibilityPicker(this)"/>
+                        <span>Танҳо интихобшудагон...</span>
                     </label>
                     <label class="settings-radio">
                         <input type="radio" name="visibility" value="nobody" onchange="saveVisibility(this)"/>
@@ -254,6 +258,28 @@
         <button class="image-viewer-close" onclick="hideImageViewer()">
             <i class="fa-solid fa-xmark"></i>
         </button>
+    </div>
+
+    <!-- PROFILE VIEWER -->
+    <div class="profile-viewer-overlay hidden" id="profileViewerOverlay" onclick="hideProfileViewer()">
+        <button class="profile-viewer-close" onclick="hideProfileViewer()">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+        <div class="profile-viewer-avatar" id="profileViewerAvatar"></div>
+        <div class="profile-viewer-name" id="profileViewerName"></div>
+        <div class="profile-viewer-status" id="profileViewerStatus"></div>
+    </div>
+
+    <!-- VISIBILITY USER PICKER -->
+    <div class="dialog-overlay hidden" id="visibilityPickerOverlay">
+        <div class="dialog-box" style="max-width:340px;width:92%;">
+            <h3 style="font-size:15px;color:var(--text);margin-bottom:12px;">👁 Ки бубинад онлайн буданамро?</h3>
+            <div class="user-picker-list" id="visibilityUserList"></div>
+            <div class="dialog-btns" style="margin-top:12px;">
+                <button class="dialog-cancel" onclick="hideVisibilityPicker()">Бекор</button>
+                <button class="dialog-confirm" style="background:var(--accent);color:#000;" onclick="saveVisibilitySelected()">Захира</button>
+            </div>
+        </div>
     </div>
 
     <!-- TOAST -->

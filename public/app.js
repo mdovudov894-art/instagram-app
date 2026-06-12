@@ -1,6 +1,7 @@
 // ========== VARIABLES ==========
 let token = localStorage.getItem('token');
 let myUsername = localStorage.getItem('username');
+let myAvatar = localStorage.getItem('myAvatar') || '';
 let currentChat = null;
 let allUsers = [];
 let mediaRecorder = null;
@@ -26,11 +27,49 @@ let isTypingSent = false;
 let isLoadingMore = false;
 let hasMoreMessages = true;
 let oldestTimestamp = null;
+let userAvatars = {}; // кэши аватарҳо
 const audioInstances = new Map();
 
 // Офлайн навбат
 let sendQueue = [];
 let isSending = false;
+
+// Охирин паём барои ҳар корбар (барои тартиб)
+let lastMessageInfo = {}; // { username: { text, timestamp } }
+
+// ========== MESSAGE CACHE (localStorage) ==========
+const CACHE_LIMIT = 60; // Охирин 60 паём кэш мешавад
+
+function cacheMessages(username, messages) {
+    try {
+        const key = `chat_${myUsername}_${username}`;
+        const toSave = messages.slice(-CACHE_LIMIT);
+        localStorage.setItem(key, JSON.stringify(toSave));
+    } catch (e) {}
+}
+
+function getCachedMessages(username) {
+    try {
+        const key = `chat_${myUsername}_${username}`;
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : null;
+    } catch (e) { return null; }
+}
+
+function appendToCache(username, newMessages) {
+    try {
+        const existing = getCachedMessages(username) || [];
+        const existingIds = new Set(existing.map(m => m._id));
+        const merged = [...existing, ...newMessages.filter(m => !existingIds.has(m._id))];
+        cacheMessages(username, merged.slice(-CACHE_LIMIT));
+    } catch (e) {}
+}
+
+function clearChatCache(username) {
+    try {
+        localStorage.removeItem(`chat_${myUsername}_${username}`);
+    } catch (e) {}
+}
 
 const socket = io({ auth: { token } });
 const sentSound = new Audio('/sounds/sent.mp3');
@@ -58,12 +97,38 @@ async function verifyToken() {
         if (res.ok) {
             const data = await res.json();
             myUsername = data.username;
+            myAvatar = data.avatar || '';
+            localStorage.setItem('myAvatar', myAvatar);
             return true;
         }
         return false;
     } catch (err) {
         return false;
     }
+}
+
+// №12 — Уведомление
+async function requestNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+        await Notification.requestPermission();
+    }
+}
+
+function showPushNotification(sender, text, avatarUrl) {
+    if (Notification.permission !== 'granted') return;
+    if (document.visibilityState === 'visible' && currentChat === sender) return;
+    const notif = new Notification(sender, {
+        body: text,
+        icon: avatarUrl || '/icon.png',
+        tag: sender,
+        renotify: true
+    });
+    notif.onclick = () => {
+        window.focus();
+        openChat(sender);
+        notif.close();
+    };
+    setTimeout(() => notif.close(), 5000);
 }
 
 // ========== OFFLINE QUEUE ==========
@@ -188,10 +253,13 @@ async function login() {
         if (!res.ok) { errorEl.textContent = data.message; return; }
         token = data.token;
         myUsername = data.username;
+        myAvatar = data.avatar || '';
         localStorage.setItem('token', token);
         localStorage.setItem('username', myUsername);
+        localStorage.setItem('myAvatar', myAvatar);
         socket.auth.token = token;
         socket.disconnect().connect();
+        requestNotificationPermission();
         showApp();
     } catch (err) {
         errorEl.textContent = 'Хатогӣ баромад!';
@@ -217,10 +285,29 @@ function showApp() {
     document.getElementById('authScreen').classList.add('hidden');
     document.getElementById('mainApp').classList.remove('hidden');
     document.getElementById('myUsername').textContent = myUsername;
-    const myAv = document.getElementById('myAvatar');
-    if (myAv) myAv.textContent = myUsername[0].toUpperCase();
+    renderMyAvatar();
     if (!socket.connected) socket.connect();
+    requestNotificationPermission();
     loadUsers();
+}
+
+function renderMyAvatar() {
+    const myAv = document.getElementById('myAvatar');
+    if (!myAv) return;
+    if (myAvatar) {
+        myAv.innerHTML = `<img src="${myAvatar}" alt="${myUsername}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>`;
+    } else {
+        myAv.textContent = myUsername ? myUsername[0].toUpperCase() : '?';
+    }
+}
+
+function renderAvatarEl(el, username, avatarUrl) {
+    if (!el) return;
+    if (avatarUrl) {
+        el.innerHTML = `<img src="${avatarUrl}" alt="${username}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>`;
+    } else {
+        el.textContent = username ? username[0].toUpperCase() : '?';
+    }
 }
 
 // ========== CHANGE USERNAME ==========
@@ -268,6 +355,157 @@ async function changeUsername() {
     }
 }
 
+// ========== PROFILE & SETTINGS (#13) ==========
+function showProfile() {
+    const modal = document.getElementById('profileModal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    document.getElementById('profileUsername').textContent = myUsername;
+    // Аватар
+    const bigAv = document.getElementById('profileBigAvatar');
+    if (myAvatar) {
+        bigAv.style.backgroundImage = `url(${myAvatar})`;
+        bigAv.style.backgroundSize = 'cover';
+        bigAv.style.backgroundPosition = 'center';
+        bigAv.querySelector('.avatar-edit-icon').style.background = 'rgba(0,0,0,0.4)';
+    } else {
+        bigAv.style.backgroundImage = '';
+    }
+    // Visibility
+    const vis = localStorage.getItem('myVisibility') || 'everyone';
+    document.querySelectorAll('input[name="visibility"]').forEach(r => {
+        r.checked = r.value === vis;
+    });
+}
+
+function hideProfile() {
+    document.getElementById('profileModal')?.classList.add('hidden');
+}
+
+async function uploadAvatar(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+    const formData = new FormData();
+    formData.append('avatar', file);
+    try {
+        showToast('Бор карда истодааст...');
+        const res = await fetch('/api/auth/upload-avatar', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token },
+            body: formData
+        });
+        const data = await res.json();
+        if (!res.ok) { showToast(data.message || 'Хатогӣ!'); return; }
+        myAvatar = data.avatar;
+        localStorage.setItem('myAvatar', myAvatar);
+        renderMyAvatar();
+        showProfile();
+        showToast('Сурат бо муваффақият бор шуд! ✅');
+    } catch(e) {
+        showToast('Хатогӣ ҳангоми боркунӣ!');
+    }
+    input.value = '';
+}
+
+async function saveVisibility(radio) {
+    const visibility = radio.value;
+    localStorage.setItem('myVisibility', visibility);
+    try {
+        await fetch('/api/auth/online-visibility', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ visibility, visibleTo: [] })
+        });
+        socket.emit('updateVisibility', { visibility });
+        const statusEl = document.getElementById('visibilityStatus');
+        if (statusEl) statusEl.textContent = '✅ Захира шуд';
+        setTimeout(() => { if(statusEl) statusEl.textContent = ''; }, 2000);
+    } catch(e) { showToast('Хатогӣ!'); }
+}
+
+function showUserProfile(username) {
+    if (!username) return;
+    const av = userAvatars[username] || '';
+    const isOnline = onlineUsers.has(username);
+    showToast(`${username} — ${isOnline ? '🟢 онлайн' : '⚫ офлайн'}`, 2500);
+}
+
+function confirmLogout() {
+    hideProfile();
+    logout();
+}
+
+// №17 — Медиа фиристодан (сурат/видео)
+async function sendMedia(input) {
+    if (!input.files || !input.files[0] || !currentChat) return;
+    const file = input.files[0];
+    const isVideo = file.type.startsWith('video/');
+    const tempId = 'temp_media_' + Date.now();
+    const receiver = currentChat;
+
+    // Пешнамоиш
+    const objectUrl = URL.createObjectURL(file);
+    const tempMsg = {
+        _id: tempId,
+        sender: myUsername,
+        receiver,
+        type: isVideo ? 'video' : 'image',
+        mediaUrl: objectUrl,
+        timestamp: new Date(),
+        reactionBySender: '',
+        reactionByReceiver: '',
+        seen: false
+    };
+    renderMessage(tempMsg, true);
+    const container = document.getElementById('messagesContainer');
+    container.scrollTop = container.scrollHeight;
+    const msgText = isVideo ? '🎥 Видео' : '🖼 Сурат';
+    updateLastMsg(receiver, msgText, false, tempMsg.timestamp);
+
+    const formData = new FormData();
+    formData.append('media', file);
+    formData.append('receiver', receiver);
+    if (replyTo) formData.append('replyToId', replyTo._id);
+    cancelReply();
+
+    try {
+        const res = await fetch('/api/messages/media', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token },
+            body: formData
+        });
+        if (!res.ok) throw new Error('Error');
+        const msg = await res.json();
+        const tempEl = document.getElementById(`msg_${tempId}`);
+        if (tempEl) tempEl.remove();
+        if (currentChat === receiver) {
+            renderMessage(msg);
+            container.scrollTop = container.scrollHeight;
+        }
+        socket.emit('sendMessage', { ...msg, receiver, sender: myUsername });
+        URL.revokeObjectURL(objectUrl);
+    } catch(e) {
+        showToast('Бор карда нашуд!');
+        const tempEl = document.getElementById(`msg_${tempId}`);
+        if (tempEl) tempEl.remove();
+    }
+    input.value = '';
+}
+
+// №17 — Image viewer
+function openImageViewer(url) {
+    const overlay = document.getElementById('imageViewerOverlay');
+    const img = document.getElementById('imageViewerImg');
+    if (overlay && img) {
+        img.src = url;
+        overlay.classList.remove('hidden');
+    }
+}
+
+function hideImageViewer() {
+    document.getElementById('imageViewerOverlay')?.classList.add('hidden');
+}
+
 // ========== USERS ==========
 async function loadUsers() {
     try {
@@ -277,6 +515,25 @@ async function loadUsers() {
         const data = await res.json();
         if (Array.isArray(data)) {
             allUsers = data;
+            // Аватарҳоро кэш кун
+            data.forEach(user => {
+                if (user.avatar) userAvatars[user.username] = user.avatar;
+            });
+            // Кэшдан охирин паёмро бор кун + хонда нашуда
+            data.forEach(user => {
+                const cached = getCachedMessages(user.username);
+                if (cached && cached.length > 0) {
+                    const last = cached[cached.length - 1];
+                    const text = getLastMsgText(last);
+                    if (!lastMessageInfo[user.username] || new Date(last.timestamp).getTime() > lastMessageInfo[user.username].timestamp) {
+                        lastMessageInfo[user.username] = { text, timestamp: new Date(last.timestamp).getTime() };
+                    }
+                    if (!unreadMessages[user.username]) {
+                        const unseenCount = cached.filter(m => m.sender === user.username && !m.seen).length;
+                        if (unseenCount > 0) unreadMessages[user.username] = unseenCount;
+                    }
+                }
+            });
             renderUsers(allUsers);
         }
     } catch (err) {
@@ -284,26 +541,56 @@ async function loadUsers() {
     }
 }
 
+function getLastMsgText(msg) {
+    if (!msg) return '';
+    if (msg.type === 'voice') return '🎤 Голосовой паём';
+    if (msg.type === 'image') return '🖼 Сурат';
+    if (msg.type === 'video') return '🎥 Видео';
+    return msg.body || '';
+}
+
 function renderUsers(users) {
     const list = document.getElementById('usersList');
     list.innerHTML = '';
-    users.forEach(user => {
-        const isUnread = unreadMessages[user.username] > 0;
+
+    // Тартиб: охирин паём аввал
+    const sorted = [...users].sort((a, b) => {
+        const aTime = lastMessageInfo[a.username]?.timestamp || 0;
+        const bTime = lastMessageInfo[b.username]?.timestamp || 0;
+        return bTime - aTime;
+    });
+
+    sorted.forEach(user => {
+        const isUnread = (unreadMessages[user.username] || 0) > 0;
         const isOnline = onlineUsers.has(user.username);
         const isTypingNow = typingTimers[user.username] === 'typing';
+        const isVoiceNow = typingTimers[user.username] === 'voice';
+        const lastInfo = lastMessageInfo[user.username];
+        const lastText = lastInfo ? escapeHtml(lastInfo.text) : '';
+        const avatarUrl = userAvatars[user.username] || '';
+
         const div = document.createElement('div');
-        div.className = 'user-item' + (currentChat === user.username ? ' active' : '');
+        div.className = 'user-item' + (currentChat === user.username ? ' active' : '') + (isUnread ? ' has-unread' : '');
         div.onclick = () => openChat(user.username);
+
+        let statusHtml = lastText;
+        if (isTypingNow) statusHtml = '<span class="typing-dots"><span></span><span></span><span></span></span>';
+        else if (isVoiceNow) statusHtml = '<span class="voice-recording-status"><i class="fa-solid fa-microphone"></i> Голосовой...</span>';
+
+        const avatarInner = avatarUrl
+            ? `<img src="${avatarUrl}" alt="${escapeHtml(user.username)}" />`
+            : user.username[0].toUpperCase();
+
         div.innerHTML = `
             <div class="user-avatar-wrap">
-                <div class="user-avatar">${user.username[0].toUpperCase()}</div>
+                <div class="user-avatar">${avatarInner}</div>
                 ${isOnline ? '<div class="online-dot"></div>' : ''}
             </div>
             <div class="user-info">
-                <div class="name">${escapeHtml(user.username)}</div>
-                <div class="last-msg ${isUnread ? 'unread-msg' : ''}" id="lastMsg_${user.username}">
-                    ${isTypingNow ? '<span class="typing-dots"><span></span><span></span><span></span></span>' : '...'}
+                <div class="user-item-top">
+                    <div class="name ${isUnread ? 'unread-name' : ''}">${escapeHtml(user.username)}</div>
                 </div>
+                <div class="last-msg ${isUnread ? 'unread-msg' : ''}" id="lastMsg_${user.username}">${statusHtml}</div>
             </div>
             ${isUnread ? `<div class="unread-badge">${unreadMessages[user.username]}</div>` : ''}
         `;
@@ -319,6 +606,12 @@ function searchUsers() {
 
 // ========== CHAT ==========
 async function openChat(username) {
+    // №9 — агар ҳамон чат боз зер карда шавад, ҳеҷ кор нашавад
+    if (currentChat === username) {
+        document.getElementById('chatArea').classList.add('open');
+        return;
+    }
+
     // Дархол чати қаблиро тоза кун
     const container = document.getElementById('messagesContainer');
     container.innerHTML = '';
@@ -333,7 +626,10 @@ async function openChat(username) {
     document.getElementById('chatDefault').classList.add('hidden');
     document.getElementById('chatScreen').classList.remove('hidden');
     document.getElementById('chatUsername').textContent = username;
-    document.getElementById('chatAvatar').textContent = username[0].toUpperCase();
+    // №4 — Аватар дар header
+    const chatAvEl = document.getElementById('chatAvatar');
+    const av = userAvatars[username] || '';
+    renderAvatarEl(chatAvEl, username, av);
     document.getElementById('chatArea').classList.add('open');
     updateChatStatus(username);
     cancelReply();
@@ -351,7 +647,10 @@ async function openChat(username) {
 function updateChatStatus(username) {
     const statusEl = document.getElementById('chatStatus');
     if (statusEl) {
-        if (typingTimers[username] === 'typing') {
+        if (typingTimers[username] === 'voice') {
+            statusEl.innerHTML = '<i class="fa-solid fa-microphone" style="font-size:11px;margin-right:3px;"></i> Голосовой карда истодааст...';
+            statusEl.className = 'chat-status typing';
+        } else if (typingTimers[username] === 'typing') {
             statusEl.textContent = 'нависонда истодааст...';
             statusEl.className = 'chat-status typing';
         } else if (onlineUsers.has(username)) {
@@ -362,15 +661,20 @@ function updateChatStatus(username) {
             statusEl.className = 'chat-status';
         }
     }
-    // Typing bubble дар поёни чат
-    const typingBubble = document.getElementById('typingBubbleIndicator');
-    if (typingBubble) {
-        if (typingTimers[username] === 'typing' && currentChat === username) {
-            typingBubble.classList.add('visible');
-            const container = document.getElementById('messagesContainer');
-            if (container) container.scrollTop = container.scrollHeight;
+    const bubble = document.getElementById('typingBubbleIndicator');
+    if (bubble) {
+        const state = typingTimers[username];
+        if ((state === 'typing' || state === 'voice') && currentChat === username) {
+            bubble.classList.add('visible');
+            if (state === 'voice') {
+                bubble.innerHTML = '<div class="typing-bubble voice-bubble-indicator"><i class="fa-solid fa-microphone"></i></div>';
+            } else {
+                bubble.innerHTML = '<div class="typing-bubble"><span></span><span></span><span></span></div>';
+            }
+            const c = document.getElementById('messagesContainer');
+            if (c) c.scrollTop = c.scrollHeight;
         } else {
-            typingBubble.classList.remove('visible');
+            bubble.classList.remove('visible');
         }
     }
 }
@@ -388,22 +692,44 @@ function goBack() {
 }
 
 async function loadMessages() {
+    const container = document.getElementById('messagesContainer');
+    container.innerHTML = '';
+
+    // 1. Аввал кэшро нишон деҳ — фаврӣ
+    const cached = getCachedMessages(currentChat);
+    if (cached && cached.length > 0) {
+        cached.forEach(msg => renderMessage(msg));
+        container.scrollTop = container.scrollHeight;
+    }
+
+    // 2. Аз сервер навсозӣ кун
     try {
         const res = await fetch(`/api/messages/${currentChat}`, {
             headers: { 'Authorization': 'Bearer ' + token }
         });
+        if (!res.ok) { hasMoreMessages = false; return; }
         const messages = await res.json();
-        const container = document.getElementById('messagesContainer');
+
+        // UI-ро навсозӣ кун
         container.innerHTML = '';
         if (messages.length < 30) hasMoreMessages = false;
         if (messages.length > 0) oldestTimestamp = messages[0].timestamp;
         messages.forEach(msg => renderMessage(msg));
         container.scrollTop = container.scrollHeight;
+
+        // Кэш кун
+        cacheMessages(currentChat, messages);
+
+        // Seen
         messages.forEach(msg => {
             if (msg.sender === currentChat && !msg.seen) markSeen(msg._id);
         });
     } catch (err) {
-        console.log('Хатогӣ:', err);
+        // Офлайн — кэш аллакай нишон дода шудааст
+        hasMoreMessages = false;
+        if (!cached || cached.length === 0) {
+            container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;font-size:13px;">Интернет нест. Паёмҳо дастрас нестанд.</div>';
+        }
     }
 }
 
@@ -430,6 +756,10 @@ async function loadMoreMessages() {
         });
         container.insertBefore(fragment, container.firstChild);
         container.scrollTop = prevScrollTop + (container.scrollHeight - prevScrollHeight);
+
+        // Кэшро навсозӣ кун
+        const chatUsername = currentChat;
+        appendToCache(chatUsername, messages);
     } catch (err) {
         console.log('Хатогӣ:', err);
     }
@@ -465,21 +795,52 @@ function createMessageElement(msg, isPending = false) {
 
     let replyHTML = '';
     if (msg.replyTo && msg.replyTo._id) {
-        const replyText = msg.replyTo.type === 'voice' ? '🎤 Голос' : escapeHtml(msg.replyTo.body || '').substring(0, 30);
+        let rawReply = '';
+        if (msg.replyTo.type === 'voice') rawReply = '🎤 Голос';
+        else if (msg.replyTo.type === 'image') rawReply = '🖼 Сурат';
+        else if (msg.replyTo.type === 'video') rawReply = '🎥 Видео';
+        else rawReply = msg.replyTo.body || '';
+        const replyText = escapeHtml(rawReply.replace(/\n+/g, ' ').trim()).substring(0, 45);
         replyHTML = `
             <div class="reply-preview" onclick="scrollToMsg('${msg.replyTo._id}')">
-                <span class="reply-name">${escapeHtml(msg.replyTo.sender)}</span>
-                <span class="reply-text">${replyText}</span>
+                <div class="reply-preview-inner">
+                    <span class="reply-name">${escapeHtml(msg.replyTo.sender)}</span>
+                    <span class="reply-text">${replyText}</span>
+                </div>
             </div>`;
     }
 
     let content = '';
     if (msg.type === 'voice' && !msg.deletedBySender && !msg.deletedByReceiver) {
         content = renderVoiceHTML(msg, replyHTML);
+    } else if (msg.type === 'image' && !msg.deletedBySender && !msg.deletedByReceiver) {
+        content = `<div class="message-bubble media-bubble">
+            ${replyHTML}
+            <img class="msg-image" src="${msg.mediaUrl}" alt="Сурат" onclick="openImageViewer('${msg.mediaUrl}')" loading="lazy"/>
+        </div>`;
+    } else if (msg.type === 'video' && !msg.deletedBySender && !msg.deletedByReceiver) {
+        content = `<div class="message-bubble media-bubble">
+            ${replyHTML}
+            <video class="msg-video" controls playsinline preload="metadata">
+                <source src="${msg.mediaUrl}"/>
+            </video>
+        </div>`;
     } else if (msg.deletedBySender || msg.deletedByReceiver) {
         content = `<div class="message-bubble deleted"><i class="fa-solid fa-ban"></i> Паём ҳазф шуд</div>`;
     } else {
-        content = `<div class="message-bubble">${replyHTML}${escapeHtml(msg.body)}</div>`;
+        // №16 — паёми дароз
+        const MAX_LEN = 300;
+        const bodyText = msg.body || '';
+        if (bodyText.length > MAX_LEN) {
+            const shortHtml = escapeHtml(bodyText.substring(0, MAX_LEN));
+            const fullHtml = escapeHtml(bodyText);
+            content = `<div class="message-bubble">
+                ${replyHTML}
+                <span class="msg-short">${shortHtml}</span><span class="msg-full" style="display:none">${fullHtml}</span><span class="expand-btn" onclick="expandMsg(this, event)"> Бештар...</span>
+            </div>`;
+        } else {
+            content = `<div class="message-bubble">${replyHTML}${escapeHtml(bodyText)}</div>`;
+        }
     }
 
     const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -853,11 +1214,14 @@ function scrollToMsg(msgId) {
     const el = document.getElementById(`msg_${msgId}`);
     if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        const bubble = el.querySelector('.message-bubble');
-        if (bubble) {
-            bubble.classList.add('highlight-anim');
-            setTimeout(() => bubble.classList.remove('highlight-anim'), 1000);
-        }
+        // №10 — аввал scroll тамом мешавад, баъд highlight
+        setTimeout(() => {
+            const bubble = el.querySelector('.message-bubble');
+            if (bubble) {
+                bubble.classList.add('highlight-anim');
+                setTimeout(() => bubble.classList.remove('highlight-anim'), 1200);
+            }
+        }, 450);
     }
 }
 
@@ -878,6 +1242,16 @@ function escapeHtml(text) {
 function escapeAttr(text) {
     if (!text) return '';
     return text.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+}
+
+// №16 — паёми дарозро кушодан
+function expandMsg(btn, e) {
+    e.stopPropagation();
+    const bubble = btn.closest('.message-bubble');
+    if (!bubble) return;
+    bubble.querySelector('.msg-short').style.display = 'none';
+    bubble.querySelector('.msg-full').style.display = 'inline';
+    btn.remove();
 }
 
 // ========== REPLY ==========
@@ -908,7 +1282,7 @@ function handleTyping() {
     typingTimeout = setTimeout(() => {
         isTypingSent = false;
         socket.emit('stopTyping', { sender: myUsername, receiver: currentChat });
-    }, 2500);
+    }, 3000);
 }
 
 function handleKeyDown(e) {
@@ -956,7 +1330,7 @@ async function sendMessage() {
     renderMessage(tempMsg, true);
     const container = document.getElementById('messagesContainer');
     container.scrollTop = container.scrollHeight;
-    updateLastMsg(receiver, body);
+    updateLastMsg(receiver, body, false, tempMsg.timestamp);
 
     // Навбатга илова кун
     sendQueue.push({
@@ -973,7 +1347,7 @@ async function sendMessage() {
             if (tempEl) tempEl.remove();
             if (currentChat === receiver) {
                 renderMessage(msg);
-                sentSound.play().catch(e => console.log("Хатогии садо:", e));
+                sentSound.play().catch(e => {});
                 container.scrollTop = container.scrollHeight;
             }
             socket.emit('sendMessage', { ...msg, receiver, sender: myUsername });
@@ -1007,6 +1381,9 @@ async function startRecording() {
     recordingSeconds = 0;
     isRecording = true;
 
+    // №8 — гиранда огоҳ кун
+    if (currentChat) socket.emit('voiceRecording', { sender: myUsername, receiver: currentChat });
+
     // Input панелро пинҳон кун
     document.getElementById('inputNormal').classList.add('hidden');
     document.getElementById('recordingIndicator').classList.remove('hidden');
@@ -1038,6 +1415,7 @@ async function startRecording() {
             stream.getTracks().forEach(track => track.stop());
             clearInterval(recordingTimer);
             isRecording = false;
+            if (currentChat) socket.emit('stopVoiceRecording', { sender: myUsername, receiver: currentChat });
             
             document.getElementById('inputNormal').classList.remove('hidden');
             document.getElementById('recordingIndicator').classList.add('hidden');
@@ -1074,6 +1452,7 @@ function cancelRecording() {
     recordingCancelled = true;
     clearInterval(recordingTimer);
     isRecording = false;
+    if (currentChat) socket.emit('stopVoiceRecording', { sender: myUsername, receiver: currentChat });
     if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
     document.getElementById('inputNormal').classList.remove('hidden');
     document.getElementById('recordingIndicator').classList.add('hidden');
@@ -1103,7 +1482,7 @@ async function queueVoiceMessage(blob, duration) {
     renderMessage(tempMsg, true);
     const container = document.getElementById('messagesContainer');
     container.scrollTop = container.scrollHeight;
-    updateLastMsg(receiver, '🎤 Голосовой паём');
+    updateLastMsg(receiver, '🎤 Голосовой паём', false, tempMsg.timestamp);
 
     sendQueue.push({
         tempId,
@@ -1164,12 +1543,77 @@ async function setReaction(emoji) {
     }
 }
 
+// №14 — Реаксия инфо панел (Instagram style)
+function showReactionPanel(rSender, rReceiver, sender, receiver, msgId, isSent, event) {
+    event.stopPropagation();
+    const overlay = document.getElementById('reactionPanelOverlay');
+    const content = document.getElementById('reactionPanelContent');
+    if (!overlay || !content) return;
+
+    const side = isSent ? 'sender' : 'receiver';
+    const myReaction = isSent ? rSender : rReceiver;
+
+    let html = '<div class="reaction-panel-list">';
+    if (rSender) {
+        const isMe = sender === myUsername;
+        html += `<div class="reaction-panel-item">
+            <span class="rp-emoji">${rSender}</span>
+            <span class="rp-name">${escapeHtml(sender)}</span>
+            ${isMe ? `<button class="rp-remove-btn" onclick="removeMyReaction('${msgId}','sender');hideReactionPanel()">Хориҷ</button>` : ''}
+        </div>`;
+    }
+    if (rReceiver) {
+        const isMe = receiver === myUsername;
+        html += `<div class="reaction-panel-item">
+            <span class="rp-emoji">${rReceiver}</span>
+            <span class="rp-name">${escapeHtml(receiver)}</span>
+            ${isMe ? `<button class="rp-remove-btn" onclick="removeMyReaction('${msgId}','receiver');hideReactionPanel()">Хориҷ</button>` : ''}
+        </div>`;
+    }
+    html += '</div>';
+    content.innerHTML = html;
+    overlay.classList.remove('hidden');
+    setTimeout(() => overlay.querySelector('.reaction-panel')?.classList.add('visible'), 10);
+}
+
+function hideReactionPanel() {
+    const overlay = document.getElementById('reactionPanelOverlay');
+    const panel = overlay?.querySelector('.reaction-panel');
+    if (panel) panel.classList.remove('visible');
+    setTimeout(() => overlay?.classList.add('hidden'), 250);
+}
+
+async function removeMyReaction(msgId, side) {
+    const wrapper = document.getElementById(`msg_${msgId}`);
+    if (!wrapper) return;
+    const isSent = wrapper.classList.contains('sent');
+    const actualSide = isSent ? 'sender' : 'receiver';
+    try {
+        const res = await fetch(`/api/messages/reaction/${msgId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ reaction: '', side: actualSide })
+        });
+        const updatedMsg = await res.json();
+        updateReactionInUI(updatedMsg);
+        socket.emit('reaction', {
+            _id: msgId, reaction: '', side: actualSide,
+            sender: myUsername, receiver: currentChat,
+            reactionBySender: updatedMsg.reactionBySender,
+            reactionByReceiver: updatedMsg.reactionByReceiver,
+            msgSender: updatedMsg.sender, msgReceiver: updatedMsg.receiver
+        });
+    } catch(e) {}
+}
+
 function showReactionInfo(rSender, rReceiver, sender, receiver, event) {
     event.stopPropagation();
-    let msg = '';
-    if (rSender) msg += `${sender}: ${rSender}\n`;
-    if (rReceiver) msg += `${receiver}: ${rReceiver}`;
-    showToast(msg.trim());
+    // Forward to panel
+    const wrapper = event.target.closest('.message-wrapper');
+    if (!wrapper) return;
+    const msgId = wrapper.id?.replace('msg_', '');
+    const isSent = wrapper.classList.contains('sent');
+    showReactionPanel(rSender, rReceiver, sender, receiver, msgId, isSent, event);
 }
 
 function updateReactionInUI(msg) {
@@ -1273,6 +1717,28 @@ socket.on('userStopTyping', (data) => {
     renderUsers(allUsers);
 });
 
+// №8 — Голосовой карда истодааст
+socket.on('userVoiceRecording', (data) => {
+    typingTimers[data.sender] = 'voice';
+    if (currentChat === data.sender) updateChatStatus(data.sender);
+    renderUsers(allUsers);
+    clearTimeout(window['voiceClear_' + data.sender]);
+    window['voiceClear_' + data.sender] = setTimeout(() => {
+        if (typingTimers[data.sender] === 'voice') {
+            delete typingTimers[data.sender];
+            if (currentChat === data.sender) updateChatStatus(data.sender);
+            renderUsers(allUsers);
+        }
+    }, 35000);
+});
+
+socket.on('userStopVoiceRecording', (data) => {
+    clearTimeout(window['voiceClear_' + data.sender]);
+    delete typingTimers[data.sender];
+    if (currentChat === data.sender) updateChatStatus(data.sender);
+    renderUsers(allUsers);
+});
+
 socket.on('newMessage', (msg) => {
     if (msg.sender === myUsername && document.getElementById(`msg_${msg._id}`)) return;
     if (currentChat === msg.sender || currentChat === msg.receiver) {
@@ -1285,11 +1751,18 @@ socket.on('newMessage', (msg) => {
         if (msg.sender === currentChat) markSeen(msg._id);
     } else if (msg.sender !== myUsername) {
         unreadMessages[msg.sender] = (unreadMessages[msg.sender] || 0) + 1;
-        renderUsers(allUsers);
+        // №12 — Уведомление
+        const notifText = getLastMsgText(msg);
+        const senderAvatar = userAvatars[msg.sender] || '';
+        showPushNotification(msg.sender, notifText, senderAvatar);
     }
-    if (msg.sender !== myUsername) {
-        updateLastMsg(msg.sender, msg.type === 'voice' ? '🎤 Голосовой паём' : msg.body, currentChat !== msg.sender);
-    }
+    // Охирин паём навсозӣ + тартиб
+    const chatPartner = msg.sender === myUsername ? msg.receiver : msg.sender;
+    const msgText = getLastMsgText(msg);
+    const isBold = msg.sender !== myUsername && currentChat !== msg.sender;
+    updateLastMsg(chatPartner, msgText, isBold, msg.timestamp);
+    // Кэш
+    appendToCache(chatPartner, [msg]);
 });
 
 socket.on('reactionUpdate', (data) => {
@@ -1331,17 +1804,23 @@ socket.on('usernameChanged', (data) => {
 
 socket.on('newUserRegistered', (data) => {
     if (data.username !== myUsername && !allUsers.find(u => u.username === data.username)) {
-        allUsers.push({ username: data.username });
+        allUsers.push({ username: data.username, avatar: data.avatar || '' });
         renderUsers(allUsers);
     }
 });
 
 // ========== HELPERS ==========
-function updateLastMsg(username, text, isBold = false) {
+function updateLastMsg(username, text, isBold = false, timestamp = Date.now()) {
+    lastMessageInfo[username] = {
+        text,
+        timestamp: new Date(timestamp).getTime()
+    };
     const el = document.getElementById(`lastMsg_${username}`);
     if (el) {
         el.innerHTML = escapeHtml(text);
         if (isBold) el.classList.add('unread-msg');
         else el.classList.remove('unread-msg');
     }
+    // Рӯйхатро дубора тартиб деҳ
+    renderUsers(allUsers);
 }

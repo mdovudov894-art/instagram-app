@@ -11,9 +11,10 @@ const MessageSchema = new mongoose.Schema({
         required: true,
         index: true
     },
+    // №17 — image ва video илова шуд
     type: {
         type: String,
-        enum: ['text', 'voice'],
+        enum: ['text', 'voice', 'image', 'video'],
         default: 'text'
     },
     body: {
@@ -21,6 +22,11 @@ const MessageSchema = new mongoose.Schema({
         default: ''
     },
     voiceUrl: {
+        type: String,
+        default: ''
+    },
+    // №17 — URL барои сурат/видео
+    mediaUrl: {
         type: String,
         default: ''
     },
@@ -61,7 +67,6 @@ const MessageSchema = new mongoose.Schema({
     }
 });
 
-// Compound index барои суръати ҷустуҷӯ
 MessageSchema.index({ sender: 1, receiver: 1, timestamp: -1 });
 
 module.exports = mongoose.model('Message', MessageSchema);

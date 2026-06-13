@@ -38,6 +38,8 @@ let isSending = false;
 let lastMessageInfo = {}; // { username: { text, timestamp } }
 
 let voiceKeepAliveInterval = null;
+let isMultiSelectMode = false;
+let selectedMessages = new Set();
 
 // ========== MESSAGE CACHE (localStorage) ==========
 const CACHE_LIMIT = 60; // Охирин 60 паём кэш мешавад
@@ -494,7 +496,12 @@ function showUserProfile(username) {
     const isOnline = onlineUsers.has(username);
     if (avEl) {
         if (avatarUrl) {
-            avEl.innerHTML = `<img src="${avatarUrl}" alt="${escapeHtml(username)}"/>`;
+            avEl.innerHTML = `<img src="${avatarUrl}" alt="${escapeHtml(username)}" id="profileViewerImg"/>`;
+            // Pinch-to-zoom
+            setTimeout(() => {
+                const img = document.getElementById('profileViewerImg');
+                if (img) setupPinchZoom(img);
+            }, 100);
         } else {
             avEl.textContent = username[0].toUpperCase();
         }
@@ -506,6 +513,62 @@ function showUserProfile(username) {
 
 function hideProfileViewer() {
     document.getElementById('profileViewerOverlay')?.classList.add('hidden');
+}
+
+// ========== PINCH TO ZOOM ==========
+function setupPinchZoom(el) {
+    let scale = 1, startScale = 1;
+    let posX = 0, posY = 0, startX = 0, startY = 0;
+    let initDist = 0;
+    let lastTap = 0;
+
+    function dist(t1, t2) {
+        return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+    }
+
+    function applyTransform(animated) {
+        el.style.transition = animated ? 'transform 0.2s ease' : 'none';
+        el.style.transform = `translate(${posX}px, ${posY}px) scale(${scale})`;
+    }
+
+    el.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            initDist = dist(e.touches[0], e.touches[1]);
+            startScale = scale;
+        } else if (e.touches.length === 1) {
+            startX = e.touches[0].clientX - posX;
+            startY = e.touches[0].clientY - posY;
+            // Double tap → zoom/reset
+            const now = Date.now();
+            if (now - lastTap < 280) {
+                if (scale > 1) { scale = 1; posX = 0; posY = 0; }
+                else { scale = 2.5; }
+                applyTransform(true);
+            }
+            lastTap = now;
+        }
+    }, { passive: false });
+
+    el.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        if (e.touches.length === 2) {
+            const d = dist(e.touches[0], e.touches[1]);
+            scale = Math.max(1, Math.min(5, startScale * (d / initDist)));
+            applyTransform(false);
+        } else if (e.touches.length === 1 && scale > 1) {
+            posX = e.touches[0].clientX - startX;
+            posY = e.touches[0].clientY - startY;
+            applyTransform(false);
+        }
+    }, { passive: false });
+
+    el.addEventListener('touchend', () => {
+        if (scale < 1.05) {
+            scale = 1; posX = 0; posY = 0;
+            applyTransform(true);
+        }
+    });
 }
 
 function confirmLogout() {
@@ -1126,7 +1189,144 @@ function inlineReply(msgId, sender, text, type) {
 
 async function inlineDelete(msgId, msgSender, msgReceiver) {
     closeInlineMenu();
-    await deleteMessage(msgId, msgSender, msgReceiver);
+    // WhatsApp style: multi-select mode-ро шурӯъ кун
+    enterMultiSelectMode(msgId);
+}
+
+// ========== MULTI-SELECT DELETE (WhatsApp style) ==========
+function enterMultiSelectMode(preSelectMsgId) {
+    isMultiSelectMode = true;
+    selectedMessages = new Set();
+    if (preSelectMsgId) selectedMessages.add(preSelectMsgId);
+
+    const container = document.getElementById('messagesContainer');
+    if (container) container.classList.add('multiselect-mode');
+
+    // Ба ҳамаи паёмҳо checkbox илова кун
+    document.querySelectorAll('.message-wrapper').forEach(wrapper => {
+        addCheckboxToWrapper(wrapper);
+    });
+
+    document.getElementById('multiSelectToolbar')?.classList.remove('hidden');
+    updateMsCount();
+}
+
+function addCheckboxToWrapper(wrapper) {
+    if (wrapper.querySelector('.msg-checkbox-wrap')) return;
+    const msgId = wrapper.id.replace('msg_', '');
+    const cb = document.createElement('div');
+    cb.className = 'msg-checkbox-wrap';
+    cb.innerHTML = `<input type="checkbox" class="msg-checkbox" ${selectedMessages.has(msgId) ? 'checked' : ''}/>`;
+    cb.querySelector('input').addEventListener('change', (e) => {
+        if (e.target.checked) selectedMessages.add(msgId);
+        else selectedMessages.delete(msgId);
+        wrapper.classList.toggle('selected-msg', e.target.checked);
+        updateMsCount();
+    });
+    // Паёмро зер кардан ҳам toggle мекунад
+    wrapper.addEventListener('click', wrapperMultiSelectClick);
+    if (selectedMessages.has(msgId)) wrapper.classList.add('selected-msg');
+
+    const isSent = wrapper.classList.contains('sent');
+    if (isSent) wrapper.appendChild(cb);
+    else wrapper.insertBefore(cb, wrapper.firstChild);
+}
+
+function wrapperMultiSelectClick(e) {
+    if (!isMultiSelectMode) return;
+    const wrapper = e.currentTarget;
+    const msgId = wrapper.id.replace('msg_', '');
+    const cb = wrapper.querySelector('.msg-checkbox');
+    if (!cb) return;
+    cb.checked = !cb.checked;
+    if (cb.checked) selectedMessages.add(msgId);
+    else selectedMessages.delete(msgId);
+    wrapper.classList.toggle('selected-msg', cb.checked);
+    updateMsCount();
+}
+
+function updateMsCount() {
+    const el = document.getElementById('msCount');
+    if (el) el.textContent = `${selectedMessages.size} интихоб`;
+}
+
+function exitMultiSelectMode() {
+    isMultiSelectMode = false;
+    selectedMessages.clear();
+    document.getElementById('messagesContainer')?.classList.remove('multiselect-mode');
+    document.getElementById('multiSelectToolbar')?.classList.add('hidden');
+    document.querySelectorAll('.msg-checkbox-wrap').forEach(c => c.remove());
+    document.querySelectorAll('.message-wrapper').forEach(w => {
+        w.classList.remove('selected-msg');
+        w.removeEventListener('click', wrapperMultiSelectClick);
+    });
+}
+
+async function deleteSelected() {
+    if (selectedMessages.size === 0) return;
+    const ids = Array.from(selectedMessages);
+
+    // Санҷидан: оё паёми дигаре ҳаст?
+    const hasOthers = ids.some(id => {
+        const w = document.getElementById(`msg_${id}`);
+        return w && w.classList.contains('received');
+    });
+
+    const overlay = document.getElementById('deleteDialogOverlay');
+    if (!overlay) return;
+
+    if (hasOthers) {
+        // Танҳо "аз худам ҳазф кун"
+        overlay.classList.remove('hidden');
+        document.getElementById('deleteForAllBtn').style.display = 'none';
+        document.getElementById('deleteForMeBtn').onclick = async () => {
+            overlay.classList.add('hidden');
+            document.getElementById('deleteForAllBtn').style.display = '';
+            for (const id of ids) await deleteSingleMsg(id, 'me');
+            exitMultiSelectMode();
+        };
+        document.getElementById('deleteCancelBtn').onclick = () => {
+            overlay.classList.add('hidden');
+            document.getElementById('deleteForAllBtn').style.display = '';
+        };
+    } else {
+        // Ҳарду вариант
+        overlay.classList.remove('hidden');
+        document.getElementById('deleteForAllBtn').style.display = '';
+        document.getElementById('deleteForAllBtn').onclick = async () => {
+            overlay.classList.add('hidden');
+            for (const id of ids) await deleteSingleMsg(id, 'all');
+            exitMultiSelectMode();
+        };
+        document.getElementById('deleteForMeBtn').onclick = async () => {
+            overlay.classList.add('hidden');
+            for (const id of ids) await deleteSingleMsg(id, 'me');
+            exitMultiSelectMode();
+        };
+        document.getElementById('deleteCancelBtn').onclick = () => overlay.classList.add('hidden');
+    }
+}
+
+async function deleteSingleMsg(msgId, mode) {
+    const wrapper = document.getElementById(`msg_${msgId}`);
+    if (!wrapper) return;
+    const isSent = wrapper.classList.contains('sent');
+    try {
+        const res = await fetch(`/api/messages/${msgId}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ deleteFor: mode === 'all' && isSent ? 'all' : 'me' })
+        });
+        const data = await res.json();
+        if (data.success) {
+            if (data.deletedFor === 'all') {
+                wrapper.remove();
+                socket.emit('deleteMessage', { _id: msgId, sender: myUsername, receiver: currentChat, deletedFor: 'all' });
+            } else {
+                wrapper.remove();
+            }
+        }
+    } catch(e) { console.log(e); }
 }
 
 // ========== SWIPE TO REPLY (mobile) — Instagram style ==========
@@ -1199,7 +1399,11 @@ function renderMessage(msg, isPending = false) {
     if (document.getElementById(`msg_${msg._id}`)) return;
     const container = document.getElementById('messagesContainer');
     const el = createMessageElement(msg, isPending);
-    if (el) container.appendChild(el);
+    if (el) {
+        container.appendChild(el);
+        // Агар multi-select режим бошад, checkbox илова кун
+        if (isMultiSelectMode) addCheckboxToWrapper(el);
+    }
 }
 
 function renderVoiceHTML(msg, replyHTML = '') {

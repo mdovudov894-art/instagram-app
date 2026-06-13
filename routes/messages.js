@@ -23,6 +23,21 @@ const voiceStorage = new CloudinaryStorage({
     })
 });
 
+// ╔══════════════════════════════════════════════════════╗
+// ║   ТАНЗИМОТИ СИФАТИ ВИДЕО — ИН ҶОРО ИВАЗ КУН         ║
+// ║   height: 360  →  360p (пешфарз)                     ║
+// ║   height: 240  →  240p (трафики камтар)               ║
+// ║   height: 480  →  480p (сифати миёна)                 ║
+// ║   quality: 'auto:low'  →  фишурдани зиёд              ║
+// ║   quality: 'auto:good' →  сифати беҳтар               ║
+// ╚══════════════════════════════════════════════════════╝
+const VIDEO_QUALITY = {
+    height: 144,          // ← ҲАМИН РАҚАМРО ИВАЗ КУН
+    crop: 'scale',
+    quality: 'auto:low',  // ← ҲАМИН ҲАМРО
+    format: 'mp4'
+};
+
 // №17 — Media storage (сурат + видео)
 const mediaStorage = new CloudinaryStorage({
     cloudinary,
@@ -31,7 +46,9 @@ const mediaStorage = new CloudinaryStorage({
         return {
             resource_type: isVideo ? 'video' : 'image',
             folder: 'chat-media',
-            public_id: `media_${Date.now()}_${Math.round(Math.random() * 1e9)}`
+            public_id: `media_${Date.now()}_${Math.round(Math.random() * 1e9)}`,
+            // Видеоро фишурда дар Cloudinary захира мекунад
+            ...(isVideo ? { transformation: [VIDEO_QUALITY] } : {})
         };
     }
 });

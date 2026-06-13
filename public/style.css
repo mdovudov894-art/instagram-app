@@ -605,27 +605,22 @@ html, body {
 
 /* REPLY PREVIEW — WhatsApp/Instagram style */
 .reply-preview {
-    border-left: 3px solid rgba(255,255,255,0.5);
+    border-left: 3px solid rgba(0,0,0,0.35);
     border-radius: 6px;
     padding: 5px 9px;
-    margin-bottom: 6px;
+    margin-bottom: 7px;
     cursor: pointer;
     overflow: hidden;
-    max-height: 48px;
-    background: rgba(255,255,255,0.12);
+    max-height: 50px;
+    background: rgba(0,0,0,0.14);
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 2px;
 }
 
-.sent .reply-preview {
-    background: rgba(0,0,0,0.15);
-    border-left-color: rgba(255,255,255,0.55);
-}
-
 .received .reply-preview {
-    background: rgba(0,212,170,0.08);
+    background: rgba(255,255,255,0.06);
     border-left-color: var(--accent);
 }
 
@@ -633,28 +628,30 @@ html, body {
     display: block;
     font-size: 11px;
     font-weight: 700;
-    color: rgba(255,255,255,0.9);
+    color: rgba(0,0,0,0.75);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.35;
+    line-height: 1.4;
 }
 
-.sent .reply-preview .reply-name { color: rgba(0,0,0,0.65); }
-.received .reply-preview .reply-name { color: var(--accent); }
+.received .reply-preview .reply-name {
+    color: var(--accent);
+}
 
 .reply-preview .reply-text {
     display: block;
     font-size: 11px;
-    color: rgba(255,255,255,0.65);
+    color: rgba(0,0,0,0.55);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1.3;
 }
 
-.sent .reply-preview .reply-text { color: rgba(0,0,0,0.5); }
-.received .reply-preview .reply-text { color: var(--text2); }
+.received .reply-preview .reply-text {
+    color: var(--text2);
+}
 
 /* VOICE */
 .voice-bubble {
@@ -862,19 +859,18 @@ html, body {
 
 /* ========== INLINE MENU ========== */
 .inline-menu {
-    position: absolute;
-    bottom: calc(100% + 8px);
+    /* Позиция JS тарафаш мешавад (position:fixed) */
     background: var(--bg2);
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 8px;
-    z-index: 100;
+    z-index: 9997;
     box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-    min-width: 210px;
+    width: 220px; /* Фиксиронӣ — калонии паём таъсир намерасонад */
+    max-width: 220px;
 }
 
-.inline-menu.sent-menu { right: 0; }
-.inline-menu.received-menu { left: 0; }
+/* right:0 ва left:0 хориҷ шуд — JS мекунад */
 
 .inline-reactions {
     display: flex;
@@ -1698,4 +1694,22 @@ html, body {
     font-size: 13px;
     color: var(--text);
     flex: 1;
+}
+
+/* Reply preview — voice message wrap */
+.voice-reply-wrap .reply-preview {
+    background: rgba(0,0,0,0.16);
+    border-left-color: rgba(0,0,0,0.35);
+    margin-bottom: 0;
+}
+.received .voice-reply-wrap .reply-preview {
+    background: rgba(255,255,255,0.06);
+    border-left-color: var(--accent);
+}
+
+/* Profile viewer large */
+.profile-viewer-overlay .profile-viewer-avatar {
+    width: min(260px, 70vw);
+    height: min(260px, 70vw);
+    font-size: 72px;
 }

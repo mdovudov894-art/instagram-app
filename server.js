@@ -127,6 +127,13 @@ io.on('connection', async (socket) => {
         } catch (err) {}
     });
 
+    // №3 — Real-time аватар навсозӣ
+    socket.on('avatarChanged', (data) => {
+        try {
+            socket.broadcast.emit('userAvatarChanged', { username: data.username, avatar: data.avatar });
+        } catch(e) {}
+    });
+
     socket.on('messageSeen', (data) => {
         try {
             io.to(data.sender).emit('messageSeenUpdate', { msgId: data.msgId });

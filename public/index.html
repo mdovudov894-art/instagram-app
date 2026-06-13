@@ -282,6 +282,17 @@
         </div>
     </div>
 
+    <!-- MULTI-SELECT TOOLBAR (WhatsApp style) -->
+    <div class="multiselect-toolbar hidden" id="multiSelectToolbar">
+        <button class="ms-cancel-btn" onclick="exitMultiSelectMode()">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+        <span class="ms-count" id="msCount">0 интихоб</span>
+        <button class="ms-delete-btn" onclick="deleteSelected()">
+            <i class="fa-solid fa-trash"></i>
+        </button>
+    </div>
+
     <!-- TOAST -->
     <div class="toast hidden" id="toast"></div>
 

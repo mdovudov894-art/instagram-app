@@ -32,7 +32,7 @@ const voiceStorage = new CloudinaryStorage({
 // ║   quality: 'auto:good' →  сифати беҳтар               ║
 // ╚══════════════════════════════════════════════════════╝
 const VIDEO_QUALITY = {
-    height: 144,          // ← ҲАМИН РАҚАМРО ИВАЗ КУН
+    height: 360,          // ← ҲАМИН РАҚАМРО ИВАЗ КУН
     crop: 'scale',
     quality: 'auto:low',  // ← ҲАМИН ҲАМРО
     format: 'mp4'
@@ -171,6 +171,13 @@ router.post('/media', authMiddleware, mediaUpload.single('media'), async (req, r
         if (!receiver) return res.status(400).json({ message: 'Гиранда нест!' });
         const mediaUrl = req.file.path || req.file.secure_url;
         const isVideo = req.file.mimetype && req.file.mimetype.startsWith('video/');
+
+        // Барои видео — thumbnail (poster) Cloudinary
+        let thumbUrl = '';
+        if (isVideo && mediaUrl) {
+            thumbUrl = mediaUrl.replace('/upload/', '/upload/so_0,f_jpg/').replace(/\.[^/.]+$/, '.jpg');
+        }
+
         let replyData = null;
         if (replyToId && !replyToId.startsWith('temp_')) {
             const replyMsg = await Message.findById(replyToId).catch(() => null);
@@ -188,6 +195,7 @@ router.post('/media', authMiddleware, mediaUpload.single('media'), async (req, r
             receiver,
             type: isVideo ? 'video' : 'image',
             mediaUrl,
+            thumbUrl,
             replyTo: replyData
         });
         await message.save();
@@ -273,6 +281,65 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 
         await message.save();
         return res.json({ success: true, deletedFor: 'me' });
+    } catch (err) {
+        res.status(500).json({ message: 'Хатогӣ: ' + err.message });
+    }
+});
+
+module.exports = router;
+
+// №Multi-select — Якчанд паёмро якбора ҳазф
+router.post('/bulk-delete', authMiddleware, async (req, res) => {
+    try {
+        const { ids, deleteFor } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0)
+            return res.status(400).json({ message: 'Паёмҳо интихоб нашуданд!' });
+
+        const deleteFromCloudinary = async (url, type = 'video') => {
+            if (!url) return;
+            try {
+                const urlParts = url.split('/');
+                const fileWithExt = urlParts[urlParts.length - 1];
+                const folder = type === 'image' ? 'chat-media' : 'chat-voice-messages';
+                const publicId = folder + '/' + fileWithExt.split('.')[0];
+                await cloudinary.uploader.destroy(publicId, { resource_type: type === 'video' ? 'video' : 'image' });
+            } catch (e) {}
+        };
+
+        const results = [];
+        for (const id of ids) {
+            const message = await Message.findById(id);
+            if (!message) continue;
+            const isSender = message.sender === req.username;
+            const isReceiver = message.receiver === req.username;
+            if (!isSender && !isReceiver) continue;
+
+            if (deleteFor === 'all' && isSender) {
+                if (message.type === 'voice') await deleteFromCloudinary(message.voiceUrl, 'video');
+                if (message.type === 'image') await deleteFromCloudinary(message.mediaUrl, 'image');
+                if (message.type === 'video') await deleteFromCloudinary(message.mediaUrl, 'video');
+                await Message.findByIdAndDelete(id);
+                results.push({ id, deletedFor: 'all' });
+                continue;
+            }
+
+            if (isSender) message.deletedBySender = true;
+            else message.deletedByReceiver = true;
+
+            if (message.deletedBySender && message.deletedByReceiver) {
+                if (message.type === 'voice') await deleteFromCloudinary(message.voiceUrl, 'video');
+                if (message.type === 'image') await deleteFromCloudinary(message.mediaUrl, 'image');
+                if (message.type === 'video') await deleteFromCloudinary(message.mediaUrl, 'video');
+                await Message.findByIdAndDelete(id);
+                results.push({ id, deletedFor: 'both' });
+                continue;
+            }
+
+            await message.save();
+            results.push({ id, deletedFor: 'me' });
+        }
+
+        res.json({ success: true, results });
     } catch (err) {
         res.status(500).json({ message: 'Хатогӣ: ' + err.message });
     }

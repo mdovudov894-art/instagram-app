@@ -1805,3 +1805,92 @@ html, body {
     cursor: zoom-in;
     transition: transform 0.2s ease;
 }
+
+/* ========== VIDEO CUSTOM PLAYER ========== */
+.video-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: 260px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #000;
+}
+
+.video-wrapper video {
+    width: 100%;
+    max-height: 320px;
+    display: block;
+    border-radius: 14px;
+}
+
+.video-play-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: rgba(0,0,0,0.15);
+    transition: opacity 0.2s;
+}
+
+.video-play-overlay.hidden-overlay { opacity: 0; pointer-events: none; }
+
+.video-play-btn {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 22px;
+    backdrop-filter: blur(4px);
+}
+
+.video-progress-bar {
+    position: absolute;
+    bottom: 6px;
+    left: 6px;
+    right: 6px;
+    height: 3px;
+    background: rgba(255,255,255,0.3);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.video-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.1s linear;
+}
+
+/* Pending (навбат) — медиа placeholder доимӣ */
+.media-pending-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.4);
+    color: #fff;
+    font-size: 13px;
+    flex-direction: column;
+    gap: 6px;
+    border-radius: 14px;
+}
+
+.media-pending-overlay i { font-size: 22px; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Receiver pending media indicator */
+.media-pending-receiver {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text2);
+    font-style: italic;
+}

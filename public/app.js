@@ -608,6 +608,9 @@ async function sendSingleMedia(file) {
     const msgText = isVideo ? '🎥 Видео' : '🖼 Сурат';
     updateLastMsg(receiver, msgText, false, tempMsg.timestamp);
 
+    // Гирандаро огоҳ кун — медиа фиристода истода аст
+    socket.emit('mediaUploading', { sender: myUsername, receiver, isVideo });
+
     const formData = new FormData();
     formData.append('media', file);
     formData.append('receiver', receiver);
@@ -652,6 +655,44 @@ function openImageViewer(url) {
 
 function hideImageViewer() {
     document.getElementById('imageViewerOverlay')?.classList.add('hidden');
+}
+
+// Custom video player (Instagram style)
+function toggleVideoPlay(overlay) {
+    const wrapper = overlay.closest('.video-wrapper');
+    const video = wrapper.querySelector('video');
+    const progressFill = wrapper.querySelector('.video-progress-fill');
+    if (!video) return;
+
+    if (video.paused) {
+        // Дигар видеоҳоро бас кун
+        document.querySelectorAll('.msg-video').forEach(v => {
+            if (v !== video && !v.paused) {
+                v.pause();
+                const ov = v.closest('.video-wrapper')?.querySelector('.video-play-overlay');
+                if (ov) ov.classList.remove('hidden-overlay');
+            }
+        });
+        video.play();
+        overlay.classList.add('hidden-overlay');
+    } else {
+        video.pause();
+        overlay.classList.remove('hidden-overlay');
+    }
+
+    if (!video._progressBound) {
+        video._progressBound = true;
+        video.addEventListener('timeupdate', () => {
+            if (video.duration) {
+                progressFill.style.width = (video.currentTime / video.duration * 100) + '%';
+            }
+        });
+        video.addEventListener('ended', () => {
+            overlay.classList.remove('hidden-overlay');
+            progressFill.style.width = '0%';
+        });
+        video.addEventListener('click', () => toggleVideoPlay(overlay));
+    }
 }
 
 // ========== USERS ==========
@@ -984,16 +1025,27 @@ function createMessageElement(msg, isPending = false) {
     if (msg.type === 'voice' && !msg.deletedBySender && !msg.deletedByReceiver) {
         content = renderVoiceHTML(msg, replyHTML);
     } else if (msg.type === 'image' && !msg.deletedBySender && !msg.deletedByReceiver) {
-        content = `<div class="message-bubble media-bubble">
+        const pendingOverlay = isPending ? '<div class="media-pending-overlay"><i class="fa-solid fa-spinner"></i><span>Фиристода истода...</span></div>' : '';
+        content = `<div class="message-bubble media-bubble" style="position:relative;">
             ${replyHTML}
-            <img class="msg-image" src="${msg.mediaUrl}" alt="Сурат" onclick="openImageViewer('${msg.mediaUrl}')" loading="lazy"/>
+            <img class="msg-image" src="${msg.mediaUrl}" alt="Сурат" onclick="${isPending ? '' : `openImageViewer('${msg.mediaUrl}')`}" loading="lazy"/>
+            ${pendingOverlay}
         </div>`;
     } else if (msg.type === 'video' && !msg.deletedBySender && !msg.deletedByReceiver) {
-        content = `<div class="message-bubble media-bubble">
+        const pendingOverlay = isPending ? '<div class="media-pending-overlay"><i class="fa-solid fa-spinner"></i><span>Фиристода истода...</span></div>' : '';
+        const poster = msg.thumbUrl ? ` poster="${msg.thumbUrl}"` : '';
+        content = `<div class="message-bubble media-bubble" style="position:relative;">
             ${replyHTML}
-            <video class="msg-video" controls playsinline preload="metadata">
-                <source src="${msg.mediaUrl}"/>
-            </video>
+            <div class="video-wrapper">
+                <video class="msg-video"${poster} playsinline preload="none">
+                    <source src="${msg.mediaUrl}"/>
+                </video>
+                <div class="video-play-overlay" onclick="toggleVideoPlay(this)">
+                    <div class="video-play-btn"><i class="fa-solid fa-play"></i></div>
+                </div>
+                <div class="video-progress-bar"><div class="video-progress-fill"></div></div>
+            </div>
+            ${pendingOverlay}
         </div>`;
     } else if (msg.deletedBySender || msg.deletedByReceiver) {
         content = `<div class="message-bubble deleted"><i class="fa-solid fa-ban"></i> Паём ҳазф шуд</div>`;
@@ -2121,7 +2173,26 @@ socket.on('userAvatarChanged', (data) => {
     }
 });
 
+// Гиранда: медиа фиристода истода — placeholder нишон деҳ
+socket.on('mediaUploading', (data) => {
+    if (data.sender === myUsername) return;
+    if (currentChat !== data.sender) return;
+    const text = data.isVideo ? '🎥 Видео фиристода истода...' : '🖼 Сурат фиристода истода...';
+    const container = document.getElementById('messagesContainer');
+    if (container && !document.getElementById('mediaUploadingIndicator')) {
+        const div = document.createElement('div');
+        div.id = 'mediaUploadingIndicator';
+        div.className = 'message-wrapper received';
+        div.innerHTML = `<div class="message-bubble media-pending-receiver"><i class="fa-solid fa-spinner fa-spin"></i> ${text}</div>`;
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+        setTimeout(() => div.remove(), 60000);
+    }
+});
+
 socket.on('newMessage', (msg) => {
+    // Pending indicator-ро тоза кун
+    document.getElementById('mediaUploadingIndicator')?.remove();
     if (msg.sender === myUsername && document.getElementById(`msg_${msg._id}`)) return;
     if (currentChat === msg.sender || currentChat === msg.receiver) {
         if (msg.sender !== myUsername) {

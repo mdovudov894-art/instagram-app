@@ -30,6 +30,11 @@ const MessageSchema = new mongoose.Schema({
         type: String,
         default: ''
     },
+    // Thumbnail (poster) барои видео
+    thumbUrl: {
+        type: String,
+        default: ''
+    },
     duration: {
         type: Number,
         default: 0

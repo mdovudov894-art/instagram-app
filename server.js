@@ -134,6 +134,13 @@ io.on('connection', async (socket) => {
         } catch(e) {}
     });
 
+    // Медиа фиристода истода — гирандаро огоҳ кун
+    socket.on('mediaUploading', (data) => {
+        try {
+            io.to(data.receiver).emit('mediaUploading', { sender: data.sender, isVideo: data.isVideo });
+        } catch(e) {}
+    });
+
     socket.on('messageSeen', (data) => {
         try {
             io.to(data.sender).emit('messageSeenUpdate', { msgId: data.msgId });

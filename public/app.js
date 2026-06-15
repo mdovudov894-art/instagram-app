@@ -111,28 +111,64 @@ async function verifyToken() {
     }
 }
 
-// №12 — Уведомление
-async function requestNotificationPermission() {
-    if ('Notification' in window && Notification.permission === 'default') {
-        await Notification.requestPermission();
+// №12 — Уведомление (production-ready бо Service Worker)
+let swRegistration = null;
+
+async function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+        swRegistration = await navigator.serviceWorker.register('/sw.js');
+        // Гузориши клик ба уведомление
+        navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'NOTIFICATION_CLICK') {
+                openChat(event.data.sender);
+            }
+        });
+    } catch (e) {
+        console.log('Service Worker хатогӣ:', e);
     }
 }
 
+async function requestNotificationPermission() {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+        await Notification.requestPermission();
+    }
+    await registerServiceWorker();
+}
+
 function showPushNotification(sender, text, avatarUrl) {
-    if (Notification.permission !== 'granted') return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
     if (document.visibilityState === 'visible' && currentChat === sender) return;
-    const notif = new Notification(sender, {
+
+    const payload = {
+        title: sender,
         body: text,
         icon: avatarUrl || '/icon.png',
-        tag: sender,
-        renotify: true
-    });
-    notif.onclick = () => {
-        window.focus();
-        openChat(sender);
-        notif.close();
+        tag: sender
     };
-    setTimeout(() => notif.close(), 5000);
+
+    // Service Worker тариқи (production — HTTPS)
+    if (swRegistration && swRegistration.active) {
+        swRegistration.active.postMessage({ type: 'SHOW_NOTIFICATION', payload });
+        return;
+    }
+
+    // Fallback — мустақим (локал)
+    try {
+        const notif = new Notification(sender, {
+            body: text,
+            icon: avatarUrl || '/icon.png',
+            tag: sender,
+            renotify: true
+        });
+        notif.onclick = () => {
+            window.focus();
+            openChat(sender);
+            notif.close();
+        };
+        setTimeout(() => notif.close(), 5000);
+    } catch(e) {}
 }
 
 // ========== OFFLINE QUEUE ==========
@@ -623,24 +659,48 @@ async function sendSingleMedia(file) {
         receiver,
         tempMsg,
         execute: async () => {
-            const res = await fetch('/api/messages/media', {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + token },
-                body: formData
-            });
-            if (!res.ok) throw new Error('Error');
-            const msg = await res.json();
+            const msg = await uploadMediaWithProgress(formData, tempId);
             const tempEl = document.getElementById(`msg_${tempId}`);
             if (tempEl) tempEl.remove();
-            if (currentChat === receiver) {
+            // Re-render to current container if the chat is still open
+            const c = document.getElementById('messagesContainer');
+            if (currentChat === receiver && c) {
                 renderMessage(msg);
-                container.scrollTop = container.scrollHeight;
+                c.scrollTop = c.scrollHeight;
             }
             socket.emit('sendMessage', { ...msg, receiver, sender: myUsername });
             URL.revokeObjectURL(objectUrl);
         }
     });
     processQueue();
+}
+
+// XHR upload бо progress (барои №10)
+function uploadMediaWithProgress(formData, tempId) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/messages/media');
+        xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                const progEl = document.getElementById(`prog_${tempId}`);
+                if (progEl) progEl.textContent = percent + '%';
+            }
+        };
+
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try { resolve(JSON.parse(xhr.responseText)); }
+                catch(e) { reject(e); }
+            } else {
+                reject(new Error('Upload failed: ' + xhr.status));
+            }
+        };
+        xhr.onerror = () => reject(new Error('Network error'));
+        xhr.send(formData);
+    });
 }
 
 // №17 — Image viewer
@@ -673,7 +733,7 @@ function toggleVideoPlay(overlay) {
                 if (ov) ov.classList.remove('hidden-overlay');
             }
         });
-        video.play();
+        video.play().catch(() => {});
         overlay.classList.add('hidden-overlay');
     } else {
         video.pause();
@@ -691,8 +751,30 @@ function toggleVideoPlay(overlay) {
             overlay.classList.remove('hidden-overlay');
             progressFill.style.width = '0%';
         });
-        video.addEventListener('click', () => toggleVideoPlay(overlay));
+        video.addEventListener('pause', () => {
+            overlay.classList.remove('hidden-overlay');
+        });
     }
+}
+
+// №1 — Видеоро полноэкранный кушодан
+function openVideoFullscreen(url) {
+    const overlay = document.getElementById('videoFullscreenOverlay');
+    const video = document.getElementById('videoFullscreenVideo');
+    if (overlay && video) {
+        // Дигар видеоҳоро бас кун
+        document.querySelectorAll('.msg-video').forEach(v => v.pause());
+        video.src = url;
+        overlay.classList.remove('hidden');
+        video.play().catch(() => {});
+    }
+}
+
+function closeVideoFullscreen() {
+    const overlay = document.getElementById('videoFullscreenOverlay');
+    const video = document.getElementById('videoFullscreenVideo');
+    if (video) { video.pause(); video.src = ''; }
+    overlay?.classList.add('hidden');
 }
 
 // ========== USERS ==========
@@ -839,15 +921,6 @@ async function openChat(username) {
 
     await loadMessages();
 
-    // Pending паёмҳои навбатро нишон деҳ
-    sendQueue.forEach(task => {
-        if (task.receiver === username && task.tempMsg && !document.getElementById(`msg_${task.tempId}`)) {
-            renderMessage(task.tempMsg, true);
-        }
-    });
-    const c2 = document.getElementById('messagesContainer');
-    if (c2 && sendQueue.some(t => t.receiver === username)) c2.scrollTop = c2.scrollHeight;
-
     container.onscroll = () => {
         if (container.scrollTop < 80 && !isLoadingMore && hasMoreMessages) {
             loadMoreMessages();
@@ -902,6 +975,20 @@ function goBack() {
     container.onscroll = null;
 }
 
+// Pending паёмҳои навбатро render кардан (медиа/voice/text)
+function renderPendingForChat(username) {
+    const container = document.getElementById('messagesContainer');
+    if (!container) return;
+    let added = false;
+    sendQueue.forEach(task => {
+        if (task.receiver === username && task.tempMsg && !document.getElementById(`msg_${task.tempId}`)) {
+            renderMessage(task.tempMsg, true);
+            added = true;
+        }
+    });
+    if (added) container.scrollTop = container.scrollHeight;
+}
+
 async function loadMessages() {
     const container = document.getElementById('messagesContainer');
     container.innerHTML = '';
@@ -912,6 +999,9 @@ async function loadMessages() {
         cached.forEach(msg => renderMessage(msg));
         container.scrollTop = container.scrollHeight;
     }
+
+    // Pending медиа/паёмҳо — фавран нишон деҳ (новобаста аз fetch)
+    renderPendingForChat(currentChat);
 
     // 2. Аз сервер навсозӣ кун
     try {
@@ -928,6 +1018,9 @@ async function loadMessages() {
         messages.forEach(msg => renderMessage(msg));
         container.scrollTop = container.scrollHeight;
 
+        // Pending-ро дубора нишон деҳ
+        renderPendingForChat(currentChat);
+
         // Кэш кун
         cacheMessages(currentChat, messages);
 
@@ -939,7 +1032,11 @@ async function loadMessages() {
         // Офлайн — кэш аллакай нишон дода шудааст
         hasMoreMessages = false;
         if (!cached || cached.length === 0) {
-            container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;font-size:13px;">Интернет нест. Паёмҳо дастрас нестанд.</div>';
+            container.innerHTML = '';
+            renderPendingForChat(currentChat);
+            if (!sendQueue.some(t => t.receiver === currentChat)) {
+                container.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;font-size:13px;">Интернет нест. Паёмҳо дастрас нестанд.</div>';
+            }
         }
     }
 }
@@ -994,6 +1091,7 @@ async function markSeen(msgId) {
 }
 
 function isDeletedForMe(msg) {
+    // №8 — Агар БАРОИ МАН ҳазф шуда бошад, паём пурра нопадид мешавад (на "ҳазф шуд" блок)
     if (msg.sender === myUsername && msg.deletedBySender) return true;
     if (msg.receiver === myUsername && msg.deletedByReceiver) return true;
     return false;
@@ -1022,33 +1120,32 @@ function createMessageElement(msg, isPending = false) {
     }
 
     let content = '';
-    if (msg.type === 'voice' && !msg.deletedBySender && !msg.deletedByReceiver) {
+    if (msg.type === 'voice') {
         content = renderVoiceHTML(msg, replyHTML);
-    } else if (msg.type === 'image' && !msg.deletedBySender && !msg.deletedByReceiver) {
+    } else if (msg.type === 'image') {
         const pendingOverlay = isPending ? '<div class="media-pending-overlay"><i class="fa-solid fa-spinner"></i><span>Фиристода истода...</span></div>' : '';
         content = `<div class="message-bubble media-bubble" style="position:relative;">
             ${replyHTML}
             <img class="msg-image" src="${msg.mediaUrl}" alt="Сурат" onclick="${isPending ? '' : `openImageViewer('${msg.mediaUrl}')`}" loading="lazy"/>
             ${pendingOverlay}
         </div>`;
-    } else if (msg.type === 'video' && !msg.deletedBySender && !msg.deletedByReceiver) {
-        const pendingOverlay = isPending ? '<div class="media-pending-overlay"><i class="fa-solid fa-spinner"></i><span>Фиристода истода...</span></div>' : '';
+    } else if (msg.type === 'video') {
+        const pendingOverlay = isPending ? '<div class="media-pending-overlay"><i class="fa-solid fa-spinner"></i><span id="prog_${msg._id}">0%</span></div>' : '';
         const poster = msg.thumbUrl ? ` poster="${msg.thumbUrl}"` : '';
-        content = `<div class="message-bubble media-bubble" style="position:relative;">
+        content = `<div class="message-bubble media-bubble no-menu" style="position:relative;">
             ${replyHTML}
-            <div class="video-wrapper">
+            <div class="video-wrapper" onclick="${isPending ? '' : "toggleVideoPlay(this.querySelector('.video-play-overlay'))"}">
                 <video class="msg-video"${poster} playsinline preload="none">
                     <source src="${msg.mediaUrl}"/>
                 </video>
-                <div class="video-play-overlay" onclick="toggleVideoPlay(this)">
+                <div class="video-play-overlay" onclick="event.stopPropagation(); toggleVideoPlay(this)">
                     <div class="video-play-btn"><i class="fa-solid fa-play"></i></div>
                 </div>
                 <div class="video-progress-bar"><div class="video-progress-fill"></div></div>
+                <button class="video-fullscreen-btn" onclick="event.stopPropagation(); openVideoFullscreen('${msg.mediaUrl}')"><i class="fa-solid fa-expand"></i></button>
             </div>
             ${pendingOverlay}
         </div>`;
-    } else if (msg.deletedBySender || msg.deletedByReceiver) {
-        content = `<div class="message-bubble deleted"><i class="fa-solid fa-ban"></i> Паём ҳазф шуд</div>`;
     } else {
         // №16 — паёми дароз
         const MAX_LEN = 300;
@@ -1093,11 +1190,16 @@ function createMessageElement(msg, isPending = false) {
 
     // Контекст меню — клик
     const bubble = wrapper.querySelector('.message-bubble');
-    if (bubble && !msg.deletedBySender && !msg.deletedByReceiver) {
+    if (bubble && !msg.deletedBySender && !msg.deletedByReceiver && !isPending) {
         bubble.addEventListener('click', (e) => {
             if (e.target.closest('.reply-preview')) return;
             if (e.target.closest('.voice-play-btn')) return;
             if (e.target.closest('.voice-progress')) return;
+            // №3 — Видео: танҳо берун аз video-wrapper зер кардан меню кушояд
+            if (e.target.closest('.video-wrapper')) return;
+            if (e.target.closest('.msg-image')) {
+                // Сурат: меню кушояд (мисли пештара)
+            }
             showInlineMenu(e, msg, wrapper);
         });
     }
@@ -2053,14 +2155,22 @@ function updateReactionInUI(msg) {
     }
 
     let html = `<div class="reactions-row" onclick="showReactionInfo('${escapeAttr(rSender)}','${escapeAttr(rReceiver)}','${escapeAttr(msg.sender)}','${escapeAttr(msg.receiver)}', event)">`;
-    if (rSender) html += `<span class="reaction-badge">${rSender}</span>`;
-    if (rReceiver) html += `<span class="reaction-badge">${rReceiver}</span>`;
+    if (rSender) html += `<span class="reaction-badge reaction-bounce">${rSender}</span>`;
+    if (rReceiver) html += `<span class="reaction-badge reaction-bounce">${rReceiver}</span>`;
     html += `</div>`;
 
     if (reactionsRow) {
         reactionsRow.outerHTML = html;
     } else {
         actionsDiv.insertAdjacentHTML('afterbegin', html);
+    }
+
+    // №6 — Бо ишора пас аз animation хориҷ кун
+    const newRow = actionsDiv.querySelector('.reactions-row');
+    if (newRow) {
+        newRow.querySelectorAll('.reaction-bounce').forEach(el => {
+            setTimeout(() => el.classList.remove('reaction-bounce'), 500);
+        });
     }
 }
 

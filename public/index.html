@@ -1,302 +1,436 @@
 <!DOCTYPE html>
-<html lang="tg">
+<html lang="tg" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>InstaTaj</title>
+    <title>ChatApp</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
 
-    <!-- AUTH -->
-    <div id="authScreen" class="auth-screen">
-        <div class="auth-container">
-            <div class="auth-logo">
-                <div class="auth-logo-icon"><i class="fa-solid fa-bolt"></i></div>
-                <h1>InstaTaj</h1>
-                <p>Агар аккаунт надошта бошед,Регистрация карда дароед</p>
-            </div>
-            <div class="auth-tabs">
-                <button class="auth-tab active" onclick="showTab('login')">Войти</button>
-                <button class="auth-tab" onclick="showTab('register')">Регистрация</button>
-            </div>
-            <div id="loginForm" class="auth-form">
-                <div class="input-group">
-                    <i class="fa-solid fa-user"></i>
-                    <input type="text" id="loginUsername" placeholder="Номи корбар" autocomplete="off"/>
-                </div>
-                <div class="input-group">
-                    <i class="fa-solid fa-lock"></i>
-                    <input type="password" id="loginPassword" placeholder="Парол" />
-                </div>
-                <button class="auth-btn" onclick="login()">
-                    <span>Войти</span><i class="fa-solid fa-arrow-right"></i>
-                </button>
-                <p id="loginError" class="error-msg"></p>
-            </div>
-            <div id="registerForm" class="auth-form hidden">
-                <div class="input-group">
-                    <i class="fa-solid fa-user"></i>
-                    <input type="text" id="regUsername" placeholder="Номи корбар" autocomplete="off"/>
-                </div>
-                <div class="input-group">
-                    <i class="fa-solid fa-lock"></i>
-                    <input type="password" id="regPassword" placeholder="Парол (камаш 6 аломат)" />
-                </div>
-                <button class="auth-btn" onclick="register()">
-                    <span>Регистрация</span><i class="fa-solid fa-arrow-right"></i>
-                </button>
-                <p id="registerError" class="error-msg"></p>
-            </div>
+<!-- AUTH -->
+<div id="authScreen" class="auth-screen">
+    <div class="auth-container">
+        <div class="auth-logo">
+            <div class="auth-logo-icon"><i class="fa-solid fa-bolt"></i></div>
+            <h1>ChatApp</h1>
+            <p>Бо дӯстонат пайваст шав</p>
         </div>
-    </div>
-
-    <!-- MAIN APP -->
-    <div id="mainApp" class="main-app hidden">
-
-        <!-- SIDEBAR -->
-        <div class="sidebar" id="sidebar">
-            <div class="sidebar-header">
-                <div class="sidebar-user" onclick="showProfile()">
-                    <div class="my-avatar" id="myAvatar"></div>
-                    <span id="myUsername" class="my-username"></span>
-                </div>
-                <div class="header-btns">
-                    <button class="icon-btn" onclick="showProfile()" title="Профил">
-                        <i class="fa-solid fa-gear"></i>
-                    </button>
-                    <button class="icon-btn" onclick="logout()" title="Баромадан">
-                        <i class="fa-solid fa-right-from-bracket"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="search-box">
-                <i class="fa-solid fa-magnifying-glass"></i>
-                <input type="text" id="searchInput" placeholder="Ҷустуҷӯ..." oninput="searchUsers()" />
-            </div>
-            <div class="users-list" id="usersList"></div>
+        <div class="auth-tabs">
+            <button class="auth-tab active" onclick="showTab('login')">Войти</button>
+            <button class="auth-tab" onclick="showTab('register')">Регистрация</button>
         </div>
-
-        <!-- CHAT AREA -->
-        <div class="chat-area" id="chatArea">
-            <div class="chat-default" id="chatDefault">
-                <div class="chat-default-icon"><i class="fa-solid fa-comments"></i></div>
-                <h3>Хуш омадед!</h3>
-                <p>Корбореро интихоб кунед ва чат оғоз кунед</p>
-            </div>
-            <div class="chat-screen hidden" id="chatScreen">
-                <div class="chat-header" id="chatHeader">
-                    <button class="back-btn" onclick="goBack()">
-                        <i class="fa-solid fa-arrow-left"></i>
-                    </button>
-                    <div class="chat-header-info" onclick="showUserProfile(currentChat)">
-                        <div class="chat-avatar" id="chatAvatar"></div>
-                        <div class="chat-header-text">
-                            <span id="chatUsername"></span>
-                            <span class="chat-status" id="chatStatus"></span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="messages-container" id="messagesContainer"></div>
-
-                <div class="typing-bubble-indicator" id="typingBubbleIndicator">
-                    <div class="typing-bubble">
-                        <span></span><span></span><span></span>
-                    </div>
-                </div>
-
-                <div class="message-input-area" id="messageInputArea">
-                    <div class="reply-box hidden" id="replyBox">
-                        <div class="reply-box-content">
-                            <div class="reply-box-bar"></div>
-                            <div class="reply-box-info">
-                                <span class="reply-name" id="replyName"></span>
-                                <span class="reply-text" id="replyText"></span>
-                            </div>
-                        </div>
-                        <button onclick="cancelReply()"><i class="fa-solid fa-xmark"></i></button>
-                    </div>
-
-                    <div class="input-row" id="inputNormal">
-                        <!-- №17 — Hidden file input (multiple for video) -->
-                        <input type="file" id="mediaFileInput" accept="image/*,video/*" multiple style="display:none" onchange="sendMedia(this)"/>
-                        <button class="media-btn" onclick="document.getElementById('mediaFileInput').click()" title="Сурат/Видео">
-                            <i class="fa-solid fa-image"></i>
-                        </button>
-                        <textarea id="messageInput" placeholder="Паём нависед..." rows="1"
-                            oninput="autoResize(this); handleTyping()"
-                            onkeydown="handleKeyDown(event)"></textarea>
-                        <button class="send-btn" onclick="sendMessage()">
-                            <i class="fa-solid fa-paper-plane"></i>
-                        </button>
-                        <button class="voice-btn" id="voiceBtn" onclick="startRecording()">
-                            <i class="fa-solid fa-microphone"></i>
-                        </button>
-                    </div>
-
-                    <div class="recording-indicator hidden" id="recordingIndicator">
-                        <button class="rec-cancel-btn" onclick="cancelRecording()">
-                            <i class="fa-solid fa-trash"></i>
-                        </button>
-                        <div class="rec-center">
-                            <div class="recording-dot"></div>
-                            <span id="recordingTime">0:00</span>
-                            <span class="rec-label">сабт мешавад...</span>
-                        </div>
-                        <button class="rec-send-btn" onclick="stopRecording()">
-                            <i class="fa-solid fa-paper-plane"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- CONFIRM DIALOG -->
-    <div class="dialog-overlay hidden" id="dialogOverlay">
-        <div class="dialog-box">
-            <p id="dialogMessage"></p>
-            <div class="dialog-btns">
-                <button class="dialog-cancel" id="dialogCancelBtn">Не</button>
-                <button class="dialog-confirm" id="dialogConfirmBtn">Ҳа</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- DELETE DIALOG -->
-    <div class="dialog-overlay hidden" id="deleteDialogOverlay">
-        <div class="dialog-box">
-            <p>Паёмро чӣ тавр ҳазф кунем?</p>
-            <div class="dialog-btns" style="flex-direction:column; gap:8px;">
-                <button class="dialog-confirm" id="deleteForAllBtn" style="background:#f87171;">
-                    <i class="fa-solid fa-trash"></i> Барои ҳама ҳазф кун
-                </button>
-                <button class="dialog-confirm" id="deleteForMeBtn" style="background:var(--bg3); color:var(--text); border:1px solid var(--border);">
-                    <i class="fa-solid fa-user"></i> Танҳо аз худам ҳазф кун
-                </button>
-                <button class="dialog-cancel" id="deleteCancelBtn">Бекор</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- CHANGE USERNAME -->
-    <div class="dialog-overlay hidden" id="changeUsernameDialog">
-        <div class="dialog-box">
-            <h3 style="margin-bottom:16px; font-size:16px; color:var(--text);">✏️ Иваз кардани ном</h3>
-            <div class="input-group" style="margin-bottom:8px;">
+        <!-- LOGIN -->
+        <div id="loginForm" class="auth-form">
+            <div class="input-group">
                 <i class="fa-solid fa-user"></i>
-                <input type="text" id="newUsernameInput" placeholder="Номи нав"
-                    style="background:none; border:none; outline:none; color:var(--text); font-size:15px; width:100%;"/>
+                <input type="text" id="loginUsername" placeholder="Номи корбар" autocomplete="off"/>
             </div>
-            <p id="changeUsernameError" class="error-msg" style="margin-top:4px;"></p>
-            <div class="dialog-btns" style="margin-top:16px;">
-                <button class="dialog-cancel" onclick="hideChangeUsername()">Бекор</button>
-                <button class="dialog-confirm" style="background:var(--accent);" onclick="changeUsername()">Захира</button>
+            <div class="input-group">
+                <i class="fa-solid fa-lock"></i>
+                <input type="password" id="loginPassword" placeholder="Парол"/>
             </div>
+            <button class="auth-btn" onclick="login()">
+                <span>Войти</span><i class="fa-solid fa-arrow-right"></i>
+            </button>
+            <p id="loginError" class="error-msg"></p>
+            <button class="forgot-link" onclick="showForgotPassword()">Паролро фаромӯш кардед?</button>
+        </div>
+        <!-- REGISTER -->
+        <div id="registerForm" class="auth-form hidden">
+            <div class="input-group">
+                <i class="fa-solid fa-user"></i>
+                <input type="text" id="regUsername" placeholder="Номи корбар" autocomplete="off"/>
+            </div>
+            <div class="input-group">
+                <i class="fa-solid fa-lock"></i>
+                <input type="password" id="regPassword" placeholder="Парол (камаш 6 аломат)"/>
+            </div>
+            <div class="input-group input-group-select">
+                <i class="fa-solid fa-circle-question"></i>
+                <select id="regQuestion">
+                    <option value="">Савол интихоб кунед...</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <i class="fa-solid fa-key"></i>
+                <input type="text" id="regAnswer" placeholder="Ҷавоби савол" autocomplete="off"/>
+            </div>
+            <button class="auth-btn" onclick="register()">
+                <span>Регистрация</span><i class="fa-solid fa-arrow-right"></i>
+            </button>
+            <p id="registerError" class="error-msg"></p>
         </div>
     </div>
+</div>
 
-    <!-- №13 — PROFILE & SETTINGS MODAL -->
-    <div class="dialog-overlay hidden" id="profileModal">
-        <div class="dialog-box profile-modal">
-            <div class="profile-modal-header">
-                <h3>Профил ва Танзимот</h3>
-                <button class="icon-btn" onclick="hideProfile()"><i class="fa-solid fa-xmark"></i></button>
+<!-- MAIN APP -->
+<div id="mainApp" class="main-app hidden">
+    <!-- SIDEBAR -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-user" onclick="showProfile()">
+                <div class="my-avatar" id="myAvatar"></div>
+                <span id="myUsername" class="my-username"></span>
             </div>
-    <!-- Avatar section -->
-            <div class="profile-avatar-section">
-                <div class="profile-big-avatar" id="profileBigAvatar">
-                    <div class="avatar-edit-icon" onclick="document.getElementById('avatarFileInput').click()"><i class="fa-solid fa-camera"></i></div>
-                </div>
-                <input type="file" id="avatarFileInput" accept="image/*" style="display:none" onchange="uploadAvatar(this)"/>
-                <p class="profile-username" id="profileUsername"></p>
-                <button class="profile-link-btn" onclick="hideProfile(); showChangeUsername()">
-                    <i class="fa-solid fa-pen"></i> Иваз кардани ном
+            <div class="header-btns">
+                <button class="icon-btn" id="adminBtn" onclick="window.open('/admin','_blank')" title="Admin" style="display:none">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </button>
+                <button class="icon-btn" onclick="toggleTheme()" title="Тема" id="themeBtn">
+                    <i class="fa-solid fa-moon"></i>
+                </button>
+                <button class="icon-btn" onclick="showProfile()" title="Профил">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+                <button class="icon-btn" onclick="logout()" title="Баромадан">
+                    <i class="fa-solid fa-right-from-bracket"></i>
                 </button>
             </div>
-            <!-- Settings -->
-            <div class="settings-section">
-                <h4>🔒 Танзимоти онлайн</h4>
-                <p class="settings-desc">Онлайн будани шуморо кӣ бубинад?</p>
-                <div class="settings-options">
-                    <label class="settings-radio">
-                        <input type="radio" name="visibility" value="everyone" onchange="saveVisibility(this)"/>
-                        <span>Ҳама</span>
-                    </label>
-                    <label class="settings-radio">
-                        <input type="radio" name="visibility" value="selected" onchange="showVisibilityPicker(this)"/>
-                        <span>Танҳо интихобшудагон...</span>
-                    </label>
-                    <label class="settings-radio">
-                        <input type="radio" name="visibility" value="nobody" onchange="saveVisibility(this)"/>
-                        <span>Ҳеҷ кас</span>
-                    </label>
+        </div>
+        <div class="search-box">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="searchInput" placeholder="Ҷустуҷӯ..." oninput="searchUsers()"/>
+        </div>
+        <div class="users-list" id="usersList"></div>
+    </div>
+
+    <!-- CHAT AREA -->
+    <div class="chat-area" id="chatArea">
+        <div class="chat-default" id="chatDefault">
+            <div class="chat-default-icon"><i class="fa-solid fa-comments"></i></div>
+            <h3>Хуш омадед!</h3>
+            <p>Корбореро интихоб кунед ва чат оғоз кунед</p>
+        </div>
+        <div class="chat-screen hidden" id="chatScreen">
+            <!-- NORMAL HEADER -->
+            <div class="chat-header" id="chatHeader">
+                <button class="back-btn" onclick="goBack()">
+                    <i class="fa-solid fa-arrow-left"></i>
+                </button>
+                <div class="chat-header-info" onclick="showUserProfile(currentChat)">
+                    <div class="chat-avatar" id="chatAvatar"></div>
+                    <div class="chat-header-text">
+                        <span id="chatUsername"></span>
+                        <span class="chat-status" id="chatStatus"></span>
+                    </div>
                 </div>
-                <p id="visibilityStatus" class="settings-status"></p>
+                <div class="chat-header-actions">
+                    <button class="icon-btn" onclick="toggleChatSearch()" title="Ҷустуҷӯ">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </button>
+                    <button class="icon-btn" onclick="showChatOptions()" title="Танзимот">
+                        <i class="fa-solid fa-ellipsis-vertical"></i>
+                    </button>
+                </div>
             </div>
-            <div class="dialog-btns" style="margin-top:16px;">
-                <button class="dialog-confirm" style="background:#f87171;" onclick="confirmLogout()">
-                    <i class="fa-solid fa-right-from-bracket"></i> Баромадан
+
+            <!-- MULTI-SELECT TOOLBAR -->
+            <div class="multiselect-toolbar hidden" id="multiSelectToolbar">
+                <button class="ms-cancel-btn" onclick="exitMultiSelectMode()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+                <span class="ms-count" id="msCount">0 интихоб</span>
+                <button class="ms-delete-btn" onclick="deleteSelected()">
+                    <i class="fa-solid fa-trash"></i>
                 </button>
             </div>
-        </div>
-    </div>
 
-    <!-- №14 — REACTION INFO PANEL -->
-    <div class="reaction-panel-overlay hidden" id="reactionPanelOverlay" onclick="hideReactionPanel()">
-        <div class="reaction-panel" id="reactionPanel" onclick="event.stopPropagation()">
-            <div class="reaction-panel-handle"></div>
-            <div class="reaction-panel-content" id="reactionPanelContent"></div>
-        </div>
-    </div>
+            <!-- CHAT SEARCH BAR -->
+            <div class="chat-search-bar hidden" id="chatSearchBar">
+                <button class="icon-btn" onclick="toggleChatSearch()">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+                <input type="text" id="chatSearchInput" placeholder="Ҷустуҷӯи паём..."
+                    oninput="searchInChat(this.value)"/>
+                <span class="search-count" id="searchCount"></span>
+            </div>
 
-    <!-- №17 — IMAGE VIEWER -->
-    <div class="image-viewer-overlay hidden" id="imageViewerOverlay" onclick="hideImageViewer()">
-        <img id="imageViewerImg" src="" alt="" />
-        <button class="image-viewer-close" onclick="hideImageViewer()">
-            <i class="fa-solid fa-xmark"></i>
-        </button>
-    </div>
+            <!-- SEARCH RESULTS -->
+            <div class="chat-search-results hidden" id="chatSearchResults"></div>
 
-    <!-- PROFILE VIEWER -->
-    <div class="profile-viewer-overlay hidden" id="profileViewerOverlay" onclick="hideProfileViewer()">
-        <button class="profile-viewer-close" onclick="hideProfileViewer()">
-            <i class="fa-solid fa-xmark"></i>
-        </button>
-        <div class="profile-viewer-avatar" id="profileViewerAvatar"></div>
-        <div class="profile-viewer-name" id="profileViewerName"></div>
-        <div class="profile-viewer-status" id="profileViewerStatus"></div>
-    </div>
+            <!-- PINNED MESSAGE BAR -->
+            <div class="pinned-bar hidden" id="pinnedBar" onclick="scrollToPinned()">
+                <i class="fa-solid fa-thumbtack"></i>
+                <span id="pinnedText">Паёми сабтшуда</span>
+                <button onclick="event.stopPropagation(); unpinMessage()" class="unpin-btn">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
 
-    <!-- VISIBILITY USER PICKER -->
-    <div class="dialog-overlay hidden" id="visibilityPickerOverlay">
-        <div class="dialog-box" style="max-width:340px;width:92%;">
-            <h3 style="font-size:15px;color:var(--text);margin-bottom:12px;">👁 Ки бубинад онлайн буданамро?</h3>
-            <div class="user-picker-list" id="visibilityUserList"></div>
-            <div class="dialog-btns" style="margin-top:12px;">
-                <button class="dialog-cancel" onclick="hideVisibilityPicker()">Бекор</button>
-                <button class="dialog-confirm" style="background:var(--accent);color:#000;" onclick="saveVisibilitySelected()">Захира</button>
+            <div class="messages-container" id="messagesContainer"></div>
+
+            <div class="typing-bubble-indicator" id="typingBubbleIndicator">
+                <div class="typing-bubble"><span></span><span></span><span></span></div>
+            </div>
+
+            <div class="message-input-area" id="messageInputArea">
+                <!-- Reply box -->
+                <div class="reply-box hidden" id="replyBox">
+                    <div class="reply-box-content">
+                        <div class="reply-box-info">
+                            <span class="reply-name" id="replyName"></span>
+                            <span class="reply-text" id="replyText"></span>
+                        </div>
+                    </div>
+                    <button onclick="cancelReply()"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+
+                <!-- Normal input -->
+                <div class="input-row" id="inputNormal">
+                    <input type="file" id="mediaFileInput" accept="image/*,video/*" multiple
+                        style="display:none" onchange="sendMedia(this)"/>
+                    <button class="media-btn" onclick="document.getElementById('mediaFileInput').click()" title="Сурат/Видео">
+                        <i class="fa-solid fa-image"></i>
+                    </button>
+                    <textarea id="messageInput" placeholder="Паём нависед..." rows="1"
+                        oninput="autoResize(this); handleTyping()"
+                        onkeydown="handleKeyDown(event)"></textarea>
+                    <button class="send-btn" onclick="sendMessage()">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                    <button class="voice-btn" id="voiceBtn" onclick="startRecording()">
+                        <i class="fa-solid fa-microphone"></i>
+                    </button>
+                </div>
+
+                <!-- Recording -->
+                <div class="recording-indicator hidden" id="recordingIndicator">
+                    <button class="rec-cancel-btn" onclick="cancelRecording()">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                    <div class="rec-center">
+                        <div class="recording-dot"></div>
+                        <span id="recordingTime">0:00</span>
+                        <span class="rec-label">сабт мешавад...</span>
+                    </div>
+                    <button class="rec-send-btn" onclick="stopRecording()">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
+</div>
 
-    <!-- MULTI-SELECT TOOLBAR (WhatsApp style) -->
-    <div class="multiselect-toolbar hidden" id="multiSelectToolbar">
-        <button class="ms-cancel-btn" onclick="exitMultiSelectMode()">
-            <i class="fa-solid fa-xmark"></i>
-        </button>
-        <span class="ms-count" id="msCount">0 интихоб</span>
-        <button class="ms-delete-btn" onclick="deleteSelected()">
-            <i class="fa-solid fa-trash"></i>
-        </button>
+<!-- CHAT OPTIONS DROPDOWN -->
+<div class="dropdown-menu hidden" id="chatOptionsMenu">
+    <button onclick="blockCurrentUser(); hideChatOptions()">
+        <i class="fa-solid fa-ban"></i> <span id="blockBtnText">Блок кун</span>
+    </button>
+    <button onclick="exportChat(); hideChatOptions()">
+        <i class="fa-solid fa-file-export"></i> Содиркунии чат
+    </button>
+    <button onclick="hideChatOptions(); showChangeUsername()">
+        <i class="fa-solid fa-pen"></i> Иваз кардани ном
+    </button>
+</div>
+
+<!-- CONFIRM DIALOG -->
+<div class="dialog-overlay hidden" id="dialogOverlay">
+    <div class="dialog-box">
+        <p id="dialogMessage"></p>
+        <div class="dialog-btns">
+            <button class="dialog-cancel" id="dialogCancelBtn">Не</button>
+            <button class="dialog-confirm" id="dialogConfirmBtn">Ҳа</button>
+        </div>
     </div>
+</div>
 
-    <!-- TOAST -->
-    <div class="toast hidden" id="toast"></div>
+<!-- DELETE DIALOG -->
+<div class="dialog-overlay hidden" id="deleteDialogOverlay">
+    <div class="dialog-box">
+        <p>Паёмро чӣ тавр ҳазф кунем?</p>
+        <div class="dialog-btns" style="flex-direction:column;gap:8px">
+            <button class="dialog-confirm" id="deleteForAllBtn" style="background:#f87171">
+                <i class="fa-solid fa-trash"></i> Барои ҳама ҳазф кун
+            </button>
+            <button class="dialog-confirm" id="deleteForMeBtn"
+                style="background:var(--bg3);color:var(--text);border:1px solid var(--border)">
+                <i class="fa-solid fa-user"></i> Танҳо аз худам ҳазф кун
+            </button>
+            <button class="dialog-cancel" id="deleteCancelBtn">Бекор</button>
+        </div>
+    </div>
+</div>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="app.js"></script>
+<!-- CHANGE USERNAME -->
+<div class="dialog-overlay hidden" id="changeUsernameDialog">
+    <div class="dialog-box">
+        <h3 style="margin-bottom:16px;font-size:16px;color:var(--text)">✏️ Иваз кардани ном</h3>
+        <div class="input-group" style="margin-bottom:8px">
+            <i class="fa-solid fa-user"></i>
+            <input type="text" id="newUsernameInput" placeholder="Номи нав"
+                style="background:none;border:none;outline:none;color:var(--text);font-size:15px;width:100%"/>
+        </div>
+        <p id="changeUsernameError" class="error-msg" style="margin-top:4px"></p>
+        <div class="dialog-btns" style="margin-top:16px">
+            <button class="dialog-cancel" onclick="hideChangeUsername()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent)" onclick="changeUsername()">Захира</button>
+        </div>
+    </div>
+</div>
+
+<!-- FORGOT PASSWORD MODAL (3 қадам) -->
+<div class="dialog-overlay hidden" id="forgotModal">
+    <div class="dialog-box" style="max-width:360px;width:92%">
+        <!-- Қадами 1 -->
+        <div id="forgotStep1">
+            <h3 style="margin-bottom:16px;font-size:16px;color:var(--text)">🔐 Баркарорсозии парол</h3>
+            <div class="input-group" style="margin-bottom:12px">
+                <i class="fa-solid fa-user"></i>
+                <input type="text" id="forgotUsername" placeholder="Номи корбар"
+                    style="background:none;border:none;outline:none;color:var(--text);font-size:15px;width:100%"/>
+            </div>
+            <p id="forgotErr1" class="error-msg"></p>
+            <div class="dialog-btns" style="margin-top:16px">
+                <button class="dialog-cancel" onclick="hideForgotPassword()">Бекор</button>
+                <button class="dialog-confirm" style="background:var(--accent);color:#000" onclick="forgotStep1()">Давом</button>
+            </div>
+        </div>
+        <!-- Қадами 2 -->
+        <div id="forgotStep2" class="hidden">
+            <h3 style="margin-bottom:12px;font-size:15px;color:var(--text)">🔐 Ба савол ҷавоб деҳ</h3>
+            <p id="forgotQuestion" style="font-size:13px;color:var(--text2);margin-bottom:12px;padding:10px;background:var(--bg3);border-radius:10px"></p>
+            <div class="input-group" style="margin-bottom:12px">
+                <i class="fa-solid fa-key"></i>
+                <input type="text" id="forgotAnswer" placeholder="Ҷавоб"
+                    style="background:none;border:none;outline:none;color:var(--text);font-size:15px;width:100%"/>
+            </div>
+            <p id="forgotErr2" class="error-msg"></p>
+            <div class="dialog-btns" style="margin-top:16px">
+                <button class="dialog-cancel" onclick="forgotBack1()">Ақиб</button>
+                <button class="dialog-confirm" style="background:var(--accent);color:#000" onclick="forgotStep2()">Санҷидан</button>
+            </div>
+        </div>
+        <!-- Қадами 3 -->
+        <div id="forgotStep3" class="hidden">
+            <h3 style="margin-bottom:16px;font-size:15px;color:var(--text)">🔐 Пароли нав</h3>
+            <div class="input-group" style="margin-bottom:10px">
+                <i class="fa-solid fa-lock"></i>
+                <input type="password" id="newPass1" placeholder="Пароли нав (камаш 6)"
+                    style="background:none;border:none;outline:none;color:var(--text);font-size:15px;width:100%"/>
+            </div>
+            <div class="input-group" style="margin-bottom:10px">
+                <i class="fa-solid fa-lock"></i>
+                <input type="password" id="newPass2" placeholder="Пароли навро такрор кунед"
+                    style="background:none;border:none;outline:none;color:var(--text);font-size:15px;width:100%"/>
+            </div>
+            <p id="forgotErr3" class="error-msg"></p>
+            <div class="dialog-btns" style="margin-top:16px">
+                <button class="dialog-cancel" onclick="hideForgotPassword()">Бекор</button>
+                <button class="dialog-confirm" style="background:var(--accent);color:#000" onclick="forgotStep3()">Захира</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- PROFILE & SETTINGS MODAL -->
+<div class="dialog-overlay hidden" id="profileModal">
+    <div class="dialog-box profile-modal">
+        <div class="profile-modal-header">
+            <h3>Профил ва Танзимот</h3>
+            <button class="icon-btn" onclick="hideProfile()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="profile-avatar-section">
+            <div class="profile-big-avatar" id="profileBigAvatar">
+                <div class="avatar-edit-icon" onclick="document.getElementById('avatarFileInput').click()">
+                    <i class="fa-solid fa-camera"></i>
+                </div>
+            </div>
+            <input type="file" id="avatarFileInput" accept="image/*" style="display:none" onchange="uploadAvatar(this)"/>
+            <p class="profile-username" id="profileUsername"></p>
+            <button class="profile-link-btn" onclick="hideProfile(); showChangeUsername()">
+                <i class="fa-solid fa-pen"></i> Иваз кардани ном
+            </button>
+        </div>
+        <div class="settings-section">
+            <h4>🔒 Онлайн будан</h4>
+            <p class="settings-desc">Кӣ онлайн буданатонро бубинад?</p>
+            <div class="settings-options">
+                <label class="settings-radio">
+                    <input type="radio" name="visibility" value="everyone" onchange="saveVisibility(this)"/>
+                    <span>Ҳама</span>
+                </label>
+                <label class="settings-radio">
+                    <input type="radio" name="visibility" value="selected" onchange="showVisibilityPicker(this)"/>
+                    <span>Танҳо интихобшудагон...</span>
+                </label>
+                <label class="settings-radio">
+                    <input type="radio" name="visibility" value="nobody" onchange="saveVisibility(this)"/>
+                    <span>Ҳеҷ кас</span>
+                </label>
+            </div>
+            <p id="visibilityStatus" class="settings-status"></p>
+        </div>
+        <div class="dialog-btns" style="margin-top:16px">
+            <button class="dialog-confirm" style="background:#f87171" onclick="confirmLogout()">
+                <i class="fa-solid fa-right-from-bracket"></i> Баромадан
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- REACTION INFO PANEL -->
+<div class="reaction-panel-overlay hidden" id="reactionPanelOverlay" onclick="hideReactionPanel()">
+    <div class="reaction-panel" id="reactionPanel" onclick="event.stopPropagation()">
+        <div class="reaction-panel-handle"></div>
+        <div class="reaction-panel-content" id="reactionPanelContent"></div>
+    </div>
+</div>
+
+<!-- VISIBILITY USER PICKER -->
+<div class="dialog-overlay hidden" id="visibilityPickerOverlay">
+    <div class="dialog-box" style="max-width:340px;width:92%">
+        <h3 style="font-size:15px;color:var(--text);margin-bottom:12px">👁 Ки бубинад?</h3>
+        <div class="user-picker-list" id="visibilityUserList"></div>
+        <div class="dialog-btns" style="margin-top:12px">
+            <button class="dialog-cancel" onclick="hideVisibilityPicker()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent);color:#000" onclick="saveVisibilitySelected()">Захира</button>
+        </div>
+    </div>
+</div>
+
+<!-- IMAGE VIEWER -->
+<div class="image-viewer-overlay hidden" id="imageViewerOverlay" onclick="hideImageViewer()">
+    <img id="imageViewerImg" src="" alt=""/>
+    <button class="image-viewer-close" onclick="hideImageViewer()"><i class="fa-solid fa-xmark"></i></button>
+</div>
+
+<!-- VIDEO FULLSCREEN -->
+<div class="video-fullscreen-overlay hidden" id="videoFullscreenOverlay"
+    onclick="if(event.target===this) closeVideoFullscreen()">
+    <video id="videoFullscreenVideo" controls playsinline autoplay></video>
+    <button class="video-fullscreen-close" onclick="closeVideoFullscreen()">
+        <i class="fa-solid fa-xmark"></i>
+    </button>
+</div>
+
+<!-- PROFILE VIEWER -->
+<div class="profile-viewer-overlay hidden" id="profileViewerOverlay" onclick="hideProfileViewer()">
+    <button class="profile-viewer-close" onclick="hideProfileViewer()"><i class="fa-solid fa-xmark"></i></button>
+    <div class="profile-viewer-avatar" id="profileViewerAvatar"></div>
+    <div class="profile-viewer-name" id="profileViewerName"></div>
+    <div class="profile-viewer-status" id="profileViewerStatus"></div>
+</div>
+
+<!-- VISIBILITY USER PICKER -->
+<div class="dialog-overlay hidden" id="visibilityPickerOverlay">
+    <div class="dialog-box" style="max-width:340px;width:92%">
+        <h3 style="font-size:15px;color:var(--text);margin-bottom:12px">👁 Ки бубинад?</h3>
+        <div class="user-picker-list" id="visibilityUserList"></div>
+        <div class="dialog-btns" style="margin-top:12px">
+            <button class="dialog-cancel" onclick="hideVisibilityPicker()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent);color:#000" onclick="saveVisibilitySelected()">Захира</button>
+        </div>
+    </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast hidden" id="toast"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

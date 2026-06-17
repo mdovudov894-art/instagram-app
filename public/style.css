@@ -1960,3 +1960,254 @@ html, body {
     color: var(--text2);
     font-style: italic;
 }
+
+/* ========== LIGHT THEME ========== */
+[data-theme="light"] {
+    --bg: #f0f2f5;
+    --bg2: #ffffff;
+    --bg3: #f0f2f5;
+    --bg4: #e4e6eb;
+    --text: #050505;
+    --text2: #65676b;
+    --text3: #8a8d91;
+    --border: #dadde1;
+    --sent-from: #0084ff;
+    --sent-to: #0066cc;
+    --received: #ffffff;
+    --accent: #00b894;
+    --accent2: #00cec9;
+    --danger: #ef4444;
+}
+
+[data-theme="light"] body { background: var(--bg); }
+[data-theme="light"] .sent .message-bubble { color: #fff; }
+[data-theme="light"] .received .message-bubble { color: var(--text); }
+[data-theme="light"] .sidebar { border-right-color: var(--border); }
+[data-theme="light"] .auth-container { background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,0.1); }
+[data-theme="light"] .input-group { background: var(--bg3); border-color: var(--border); }
+[data-theme="light"] .dialog-box { background: #fff; }
+[data-theme="light"] .inline-menu { background: #fff; }
+[data-theme="light"] .reaction-panel { background: #fff; }
+
+/* ========== FORGOT PASSWORD LINK ========== */
+.forgot-link {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 13px;
+    cursor: pointer;
+    margin-top: 8px;
+    padding: 4px;
+    display: block;
+    width: 100%;
+    text-align: center;
+}
+.forgot-link:hover { opacity: 0.8; }
+
+/* ========== AUTH SELECT ========== */
+.input-group-select { padding: 0 14px; }
+.input-group-select select {
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text);
+    font-size: 15px;
+    width: 100%;
+    padding: 12px 0;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+}
+.input-group-select select option {
+    background: var(--bg2);
+    color: var(--text);
+}
+
+/* ========== CHAT HEADER ACTIONS ========== */
+.chat-header-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+}
+
+/* ========== CHAT OPTIONS DROPDOWN ========== */
+.dropdown-menu {
+    position: fixed;
+    right: 12px;
+    top: 60px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    z-index: 9000;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    min-width: 200px;
+}
+.dropdown-menu button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 13px 18px;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 14px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s;
+}
+.dropdown-menu button:hover { background: var(--bg3); }
+
+/* ========== CHAT SEARCH BAR ========== */
+.chat-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+}
+.chat-search-bar input {
+    flex: 1;
+    background: var(--bg3);
+    border: none;
+    border-radius: 10px;
+    padding: 8px 14px;
+    color: var(--text);
+    font-size: 14px;
+    outline: none;
+}
+.search-count {
+    font-size: 12px;
+    color: var(--text3);
+    white-space: nowrap;
+}
+
+/* ========== SEARCH RESULTS ========== */
+.chat-search-results {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    max-height: 240px;
+    overflow-y: auto;
+}
+.search-result-item {
+    padding: 10px 16px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+}
+.search-result-item:hover { background: var(--bg3); }
+.sr-sender {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 2px;
+    display: flex;
+    justify-content: space-between;
+}
+.sr-time { color: var(--text3); font-weight: 400; }
+.sr-text { font-size: 13px; color: var(--text2); }
+.sr-text mark { background: rgba(0,212,170,0.25); color: var(--text); border-radius: 3px; }
+.search-empty { padding: 16px; text-align: center; color: var(--text3); font-size: 13px; }
+
+/* ========== PINNED MESSAGE BAR ========== */
+.pinned-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.pinned-bar:hover { background: var(--bg4); }
+.pinned-bar i { color: var(--accent); font-size: 13px; flex-shrink: 0; }
+.pinned-bar span { font-size: 13px; color: var(--text2); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.unpin-btn {
+    background: none;
+    border: none;
+    color: var(--text3);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+.unpin-btn:hover { background: var(--bg4); color: var(--text); }
+
+/* ========== EDITED LABEL ========== */
+.edited-label {
+    font-size: 10px;
+    color: var(--text3);
+    font-style: italic;
+    margin-left: 4px;
+}
+
+/* ========== EDIT MESSAGE ========== */
+.edit-textarea {
+    width: 100%;
+    background: rgba(0,0,0,0.12);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 10px;
+    padding: 8px 10px;
+    color: inherit;
+    font-size: 14px;
+    resize: none;
+    outline: none;
+    min-height: 60px;
+    font-family: inherit;
+    line-height: 1.5;
+}
+.received .edit-textarea {
+    background: rgba(0,0,0,0.06);
+    border-color: var(--border);
+    color: var(--text);
+}
+.edit-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    justify-content: flex-end;
+}
+.edit-cancel {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text2);
+}
+.edit-save {
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    padding: 5px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #000;
+    font-weight: 600;
+}
+
+/* ========== INLINE ACTIONS expanded ========== */
+.inline-actions button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 14px;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    border-radius: 8px;
+    transition: background 0.15s;
+}
+.inline-actions button:hover { background: var(--bg3); }
+.inline-actions .del-btn { color: #f87171; }
+.inline-actions .del-btn:hover { background: rgba(248,113,113,0.1); }

@@ -2,6 +2,7 @@
 let token = localStorage.getItem('token');
 let myUsername = localStorage.getItem('username');
 let myAvatar = localStorage.getItem('myAvatar') || '';
+let myRole = localStorage.getItem('myRole') || 'user';
 let currentChat = null;
 let allUsers = [];
 let mediaRecorder = null;
@@ -27,7 +28,12 @@ let isTypingSent = false;
 let isLoadingMore = false;
 let hasMoreMessages = true;
 let oldestTimestamp = null;
-let userAvatars = {}; // кэши аватарҳо
+let userAvatars = {};
+let blockedUsers = new Set();
+let pinnedMsgId = null;
+let currentTheme = localStorage.getItem('theme') || 'dark';
+let forgotResetToken = null;
+let isChatSearchOpen = false;
 const audioInstances = new Map();
 
 // Офлайн навбат
@@ -250,6 +256,7 @@ function showTab(tab) {
     } else {
         document.querySelectorAll('.auth-tab')[1].classList.add('active');
         document.getElementById('registerForm').classList.remove('hidden');
+        loadSecurityQuestions();
     }
 }
 
@@ -285,8 +292,7 @@ async function login() {
     if (!username || !password) { errorEl.textContent = 'Ҳамаи майдонҳоро пур кунед!'; return; }
     try {
         const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
         });
         const data = await res.json();
@@ -294,12 +300,45 @@ async function login() {
         token = data.token;
         myUsername = data.username;
         myAvatar = data.avatar || '';
+        myRole = data.role || 'user';
         localStorage.setItem('token', token);
         localStorage.setItem('username', myUsername);
         localStorage.setItem('myAvatar', myAvatar);
+        localStorage.setItem('myRole', myRole);
         socket.auth.token = token;
         socket.disconnect().connect();
         requestNotificationPermission();
+        showApp();
+    } catch (err) {
+        errorEl.textContent = 'Хатогӣ баромад!';
+    }
+}
+
+async function register() {
+    const username = document.getElementById('regUsername').value.trim();
+    const password = document.getElementById('regPassword').value.trim();
+    const securityQuestion = document.getElementById('regQuestion').value;
+    const securityAnswer = document.getElementById('regAnswer').value.trim();
+    const errorEl = document.getElementById('registerError');
+    if (!username || !password) { errorEl.textContent = 'Ҳамаи майдонҳоро пур кунед!'; return; }
+    if (!securityQuestion) { errorEl.textContent = 'Савол интихоб кунед!'; return; }
+    if (!securityAnswer) { errorEl.textContent = 'Ҷавоби саволро нависед!'; return; }
+    try {
+        const res = await fetch('/api/auth/register', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, securityQuestion, securityAnswer })
+        });
+        const data = await res.json();
+        if (!res.ok) { errorEl.textContent = data.message; return; }
+        token = data.token;
+        myUsername = data.username;
+        myAvatar = ''; myRole = 'user';
+        localStorage.setItem('token', token);
+        localStorage.setItem('username', myUsername);
+        localStorage.setItem('myAvatar', '');
+        localStorage.setItem('myRole', 'user');
+        socket.auth.token = token;
+        socket.disconnect().connect();
         showApp();
     } catch (err) {
         errorEl.textContent = 'Хатогӣ баромад!';
@@ -326,9 +365,16 @@ function showApp() {
     document.getElementById('mainApp').classList.remove('hidden');
     document.getElementById('myUsername').textContent = myUsername;
     renderMyAvatar();
+    applyTheme(currentTheme);
     if (!socket.connected) socket.connect();
     requestNotificationPermission();
     loadUsers();
+    loadBlockedUsers();
+    // Admin кнопка
+    if (myRole === 'admin') {
+        const btn = document.getElementById('adminBtn');
+        if (btn) btn.style.display = 'flex';
+    }
 }
 
 function renderMyAvatar() {
@@ -475,6 +521,274 @@ async function saveVisibilitySelected() {
 
 function hideProfile() {
     document.getElementById('profileModal')?.classList.add('hidden');
+}
+
+// ========== DARK/LIGHT THEME ==========
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    currentTheme = theme;
+    localStorage.setItem('theme', theme);
+    const btn = document.getElementById('themeBtn');
+    if (btn) btn.innerHTML = theme === 'dark' ? '<i class="fa-solid fa-moon"></i>' : '<i class="fa-solid fa-sun"></i>';
+}
+function toggleTheme() { applyTheme(currentTheme === 'dark' ? 'light' : 'dark'); }
+
+// ========== FORGOT PASSWORD ==========
+async function showForgotPassword() {
+    await loadSecurityQuestions();
+    ['forgotStep2','forgotStep3'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
+    document.getElementById('forgotStep1')?.classList.remove('hidden');
+    document.getElementById('forgotUsername').value = '';
+    document.getElementById('forgotErr1').textContent = '';
+    document.getElementById('forgotModal')?.classList.remove('hidden');
+}
+function hideForgotPassword() {
+    document.getElementById('forgotModal')?.classList.add('hidden');
+    forgotResetToken = null;
+}
+async function forgotStep1() {
+    const username = document.getElementById('forgotUsername').value.trim();
+    const err = document.getElementById('forgotErr1');
+    if (!username) { err.textContent = 'Номи корбарро нависед!'; return; }
+    try {
+        const res = await fetch('/api/auth/forgot-password/question', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username })
+        });
+        const data = await res.json();
+        if (!res.ok) { err.textContent = data.message; return; }
+        document.getElementById('forgotQuestion').textContent = data.question;
+        document.getElementById('forgotAnswer').value = '';
+        document.getElementById('forgotErr2').textContent = '';
+        document.getElementById('forgotStep1').classList.add('hidden');
+        document.getElementById('forgotStep2').classList.remove('hidden');
+    } catch(e) { err.textContent = 'Хатогӣ!'; }
+}
+function forgotBack1() {
+    document.getElementById('forgotStep2').classList.add('hidden');
+    document.getElementById('forgotStep1').classList.remove('hidden');
+}
+async function forgotStep2() {
+    const username = document.getElementById('forgotUsername').value.trim();
+    const answer = document.getElementById('forgotAnswer').value.trim();
+    const err = document.getElementById('forgotErr2');
+    if (!answer) { err.textContent = 'Ҷавобро нависед!'; return; }
+    try {
+        const res = await fetch('/api/auth/forgot-password/verify', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, answer })
+        });
+        const data = await res.json();
+        if (!res.ok) { err.textContent = data.message; return; }
+        forgotResetToken = data.resetToken;
+        document.getElementById('newPass1').value = '';
+        document.getElementById('newPass2').value = '';
+        document.getElementById('forgotErr3').textContent = '';
+        document.getElementById('forgotStep2').classList.add('hidden');
+        document.getElementById('forgotStep3').classList.remove('hidden');
+    } catch(e) { err.textContent = 'Хатогӣ!'; }
+}
+async function forgotStep3() {
+    const p1 = document.getElementById('newPass1').value.trim();
+    const p2 = document.getElementById('newPass2').value.trim();
+    const err = document.getElementById('forgotErr3');
+    if (p1.length < 6) { err.textContent = 'Парол камаш 6 аломат бошад!'; return; }
+    if (p1 !== p2) { err.textContent = 'Паролҳо мувофиқ нестанд!'; return; }
+    try {
+        const res = await fetch('/api/auth/forgot-password/reset', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ resetToken: forgotResetToken, newPassword: p1 })
+        });
+        const data = await res.json();
+        if (!res.ok) { err.textContent = data.message; return; }
+        hideForgotPassword();
+        showToast('✅ Парол иваз шуд! Дохил шавед.');
+    } catch(e) { err.textContent = 'Хатогӣ!'; }
+}
+
+// ========== BLOCK/UNBLOCK ==========
+async function loadBlockedUsers() {
+    try {
+        const res = await fetch('/api/auth/blocked', { headers: { 'Authorization': 'Bearer ' + token } });
+        const list = await res.json();
+        blockedUsers = new Set(list);
+    } catch(e) {}
+}
+async function blockCurrentUser() {
+    if (!currentChat) return;
+    const isBlocked = blockedUsers.has(currentChat);
+    try {
+        await fetch(`/api/auth/${isBlocked ? 'unblock' : 'block'}/${currentChat}`, {
+            method: 'POST', headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (isBlocked) { blockedUsers.delete(currentChat); showToast(`${currentChat} блок бардошта шуд`); }
+        else { blockedUsers.add(currentChat); showToast(`${currentChat} блок карда шуд`); }
+        updateBlockBtn();
+    } catch(e) { showToast('Хатогӣ!'); }
+}
+function updateBlockBtn() {
+    const btn = document.getElementById('blockBtnText');
+    if (btn && currentChat) btn.textContent = blockedUsers.has(currentChat) ? 'Блок бардор' : 'Блок кун';
+}
+
+// ========== CHAT OPTIONS ==========
+function showChatOptions() {
+    const menu = document.getElementById('chatOptionsMenu');
+    if (!menu) return;
+    updateBlockBtn();
+    menu.classList.remove('hidden');
+    setTimeout(() => document.addEventListener('click', () => hideChatOptions(), { once: true }), 50);
+}
+function hideChatOptions() { document.getElementById('chatOptionsMenu')?.classList.add('hidden'); }
+
+// ========== SEARCH IN CHAT ==========
+function toggleChatSearch() {
+    isChatSearchOpen = !isChatSearchOpen;
+    const bar = document.getElementById('chatSearchBar');
+    const results = document.getElementById('chatSearchResults');
+    if (isChatSearchOpen) {
+        bar.classList.remove('hidden');
+        document.getElementById('chatSearchInput')?.focus();
+    } else {
+        bar.classList.add('hidden');
+        if (results) { results.classList.add('hidden'); results.innerHTML = ''; }
+    }
+}
+async function searchInChat(q) {
+    const results = document.getElementById('chatSearchResults');
+    const countEl = document.getElementById('searchCount');
+    if (!q || q.trim().length < 2) {
+        if (results) { results.classList.add('hidden'); results.innerHTML = ''; }
+        if (countEl) countEl.textContent = '';
+        return;
+    }
+    try {
+        const res = await fetch(`/api/messages/search/${currentChat}?q=${encodeURIComponent(q)}`, {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const msgs = await res.json();
+        if (countEl) countEl.textContent = msgs.length ? `${msgs.length} ёфт` : 'Ёфт нашуд';
+        if (!results) return;
+        results.innerHTML = '';
+        if (!msgs.length) {
+            results.innerHTML = '<div class="search-empty">Паём ёфт нашуд</div>';
+            results.classList.remove('hidden'); return;
+        }
+        msgs.forEach(msg => {
+            const div = document.createElement('div');
+            div.className = 'search-result-item';
+            const time = new Date(msg.timestamp).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+            const hl = escapeHtml(msg.body).replace(new RegExp(escapeHtml(q), 'gi'), m => `<mark>${m}</mark>`);
+            div.innerHTML = `<div class="sr-sender">${escapeHtml(msg.sender)} <span class="sr-time">${time}</span></div><div class="sr-text">${hl}</div>`;
+            div.onclick = () => { scrollToMsg(msg._id); toggleChatSearch(); };
+            results.appendChild(div);
+        });
+        results.classList.remove('hidden');
+    } catch(e) {}
+}
+
+// ========== PINNED MESSAGE ==========
+async function loadPinnedMessage() {
+    if (!currentChat) return;
+    try {
+        const res = await fetch(`/api/messages/pinned/${currentChat}`, {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const msg = await res.json();
+        if (msg) { pinnedMsgId = msg._id; showPinnedBar(msg); }
+        else hidePinnedBar();
+    } catch(e) {}
+}
+function showPinnedBar(msg) {
+    const bar = document.getElementById('pinnedBar');
+    const text = document.getElementById('pinnedText');
+    if (!bar || !text) return;
+    const preview = msg.type === 'voice' ? '🎤 Голосовой паём'
+        : msg.type === 'image' ? '🖼 Сурат' : msg.type === 'video' ? '🎥 Видео'
+        : (msg.body || '').substring(0, 60);
+    text.textContent = preview;
+    bar.classList.remove('hidden');
+}
+function hidePinnedBar() { pinnedMsgId = null; document.getElementById('pinnedBar')?.classList.add('hidden'); }
+function scrollToPinned() { if (pinnedMsgId) scrollToMsg(pinnedMsgId); }
+
+async function pinMessageById(msgId) {
+    try {
+        const res = await fetch(`/api/messages/pin/${msgId}`, {
+            method: 'PUT', headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const data = await res.json();
+        if (data.pinned) {
+            pinnedMsgId = msgId; showPinnedBar(data.message);
+            socket.emit('pinMessage', { msgId, receiver: currentChat, sender: myUsername, message: data.message, pinned: true });
+            showToast('📌 Паём сабт шуд');
+        } else {
+            hidePinnedBar();
+            socket.emit('pinMessage', { msgId, receiver: currentChat, sender: myUsername, pinned: false });
+            showToast('Паём аз сабт хориҷ шуд');
+        }
+    } catch(e) { showToast('Хатогӣ!'); }
+}
+async function unpinMessage() { if (pinnedMsgId) await pinMessageById(pinnedMsgId); }
+
+// ========== EDIT MESSAGE ==========
+async function startEditMessage(msgId, currentBody) {
+    closeInlineMenu();
+    const el = document.getElementById(`msg_${msgId}`);
+    if (!el) return;
+    const bubble = el.querySelector('.message-bubble');
+    if (!bubble) return;
+    const origHTML = bubble.innerHTML;
+    bubble.innerHTML = `<textarea class="edit-textarea" id="eta_${msgId}">${escapeHtml(currentBody)}</textarea><div class="edit-actions"><button class="edit-cancel" onclick="document.getElementById('msg_${msgId}').querySelector('.message-bubble').innerHTML = atob('${btoa(origHTML)}')">Бекор</button><button class="edit-save" onclick="saveEdit('${msgId}')">Захира</button></div>`;
+    const ta = document.getElementById(`eta_${msgId}`);
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+}
+async function saveEdit(msgId) {
+    const ta = document.getElementById(`eta_${msgId}`);
+    if (!ta) return;
+    const newBody = ta.value.trim();
+    if (!newBody) { showToast('Матн холӣ!'); return; }
+    try {
+        const res = await fetch(`/api/messages/edit/${msgId}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ body: newBody })
+        });
+        if (!res.ok) { showToast('Хатогӣ!'); return; }
+        const msg = await res.json();
+        const el = document.getElementById(`msg_${msgId}`);
+        if (el) {
+            const bubble = el.querySelector('.message-bubble');
+            if (bubble) bubble.innerHTML = `${escapeHtml(newBody)}<span class="edited-label"> (иваз карда шуд)</span>`;
+        }
+        socket.emit('editMessage', { _id: msgId, body: newBody, receiver: currentChat, sender: myUsername, edited: true });
+    } catch(e) { showToast('Хатогӣ!'); }
+}
+
+// ========== EXPORT CHAT ==========
+function exportChat() {
+    if (!currentChat) return;
+    fetch(`/api/messages/export/${currentChat}`, { headers: { 'Authorization': 'Bearer ' + token } })
+        .then(r => r.blob())
+        .then(blob => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `chat_${currentChat}.txt`;
+            a.click();
+            showToast('✅ Чат содир шуд!');
+        }).catch(() => showToast('Хатогӣ!'));
+}
+
+// ========== SECURITY QUESTIONS LOADER ==========
+async function loadSecurityQuestions() {
+    try {
+        const res = await fetch('/api/auth/security-questions');
+        const questions = await res.json();
+        const sel = document.getElementById('regQuestion');
+        if (sel) {
+            sel.innerHTML = '<option value="">Савол интихоб кунед...</option>';
+            questions.forEach(q => { sel.innerHTML += `<option value="${q}">${q}</option>`; });
+        }
+    } catch(e) {}
 }
 
 async function uploadAvatar(input) {
@@ -915,6 +1229,8 @@ async function openChat(username) {
     const av = userAvatars[username] || '';
     renderAvatarEl(chatAvEl, username, av);
     document.getElementById('chatArea').classList.add('open');
+    // Сабтшуда паёмро бор кун
+    loadPinnedMessage();
     updateChatStatus(username);
     cancelReply();
     renderUsers(allUsers);
@@ -1150,15 +1466,16 @@ function createMessageElement(msg, isPending = false) {
         // №16 — паёми дароз
         const MAX_LEN = 300;
         const bodyText = msg.body || '';
+        const editedLabel = msg.edited ? '<span class="edited-label"> (иваз карда шуд)</span>' : '';
         if (bodyText.length > MAX_LEN) {
             const shortHtml = escapeHtml(bodyText.substring(0, MAX_LEN));
             const fullHtml = escapeHtml(bodyText);
             content = `<div class="message-bubble">
                 ${replyHTML}
-                <span class="msg-short">${shortHtml}</span><span class="msg-full" style="display:none">${fullHtml}</span><span class="expand-btn" onclick="expandMsg(this, event)"> Бештар...</span>
+                <span class="msg-short">${shortHtml}</span><span class="msg-full" style="display:none">${fullHtml}</span><span class="expand-btn" onclick="expandMsg(this, event)"> Бештар...</span>${editedLabel}
             </div>`;
         } else {
-            content = `<div class="message-bubble">${replyHTML}${escapeHtml(bodyText)}</div>`;
+            content = `<div class="message-bubble">${replyHTML}${escapeHtml(bodyText)}${editedLabel}</div>`;
         }
     }
 
@@ -1229,6 +1546,10 @@ function showInlineMenu(e, msg, wrapper) {
 
     let actionsHtml = '<div class="inline-actions">';
     actionsHtml += `<button onclick="inlineReply('${msg._id}','${escapeAttr(msg.sender)}',\`${msg.type === 'voice' ? '🎤 Голосовой паём' : escapeHtml(msg.body || '').replace(/`/g, "'")}\`,'${msg.type || 'text'}')"><i class="fa-solid fa-reply"></i> Ҷавоб</button>`;
+    if (isSent && msg.type === 'text' && !isPending) {
+        actionsHtml += `<button onclick="startEditMessage('${msg._id}','${escapeAttr(msg.body || '')}')"><i class="fa-solid fa-pen"></i> Иваз кун</button>`;
+    }
+    actionsHtml += `<button onclick="pinMessageById('${msg._id}')"><i class="fa-solid fa-thumbtack"></i> Сабт</button>`;
     actionsHtml += `<button class="del-btn" onclick="inlineDelete('${msg._id}','${escapeAttr(msg.sender)}','${escapeAttr(msg.receiver)}')"><i class="fa-solid fa-trash"></i> Ҳазф</button>`;
     actionsHtml += '</div>';
 
@@ -2269,6 +2590,33 @@ socket.on('userStopVoiceRecording', (data) => {
     delete typingTimers[data.sender];
     if (currentChat === data.sender) updateChatStatus(data.sender);
     renderUsers(allUsers);
+});
+
+// Иваз кардани паём — socket
+socket.on('messageEdited', (data) => {
+    const el = document.getElementById(`msg_${data._id}`);
+    if (!el) return;
+    const bubble = el.querySelector('.message-bubble');
+    if (bubble) {
+        bubble.innerHTML = `${escapeHtml(data.body)}<span class="edited-label"> (иваз карда шуд)</span>`;
+    }
+    // Кэш навсозӣ
+    const chatPartner = data.sender === myUsername ? data.receiver : data.sender;
+    const cached = getCachedMessages(chatPartner);
+    if (cached) {
+        const msg = cached.find(m => m._id === data._id);
+        if (msg) { msg.body = data.body; msg.edited = true; cacheMessages(chatPartner, cached); }
+    }
+});
+
+// Сабт кардани паём — socket
+socket.on('messagePinned', (data) => {
+    if (data.pinned && data.message) {
+        pinnedMsgId = data.msgId;
+        showPinnedBar(data.message);
+    } else {
+        hidePinnedBar();
+    }
 });
 
 // №3 — Real-time аватар навсозӣ

@@ -5,6 +5,7 @@ const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('cloudinary').v2;
 const Message = require('../models/Message');
+const User = require('../models/User');
 
 cloudinary.config({
     cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -12,7 +13,6 @@ cloudinary.config({
     api_secret: process.env.CLOUDINARY_API_SECRET
 });
 
-// Voice storage
 const voiceStorage = new CloudinaryStorage({
     cloudinary,
     params: async (req, file) => ({
@@ -23,22 +23,16 @@ const voiceStorage = new CloudinaryStorage({
     })
 });
 
-// ╔══════════════════════════════════════════════════════╗
-// ║   ТАНЗИМОТИ СИФАТИ ВИДЕО — ИН ҶОРО ИВАЗ КУН         ║
-// ║   height: 360  →  360p (пешфарз)                     ║
-// ║   height: 240  →  240p (трафики камтар)               ║
-// ║   height: 480  →  480p (сифати миёна)                 ║
-// ║   quality: 'auto:low'  →  фишурдани зиёд              ║
-// ║   quality: 'auto:good' →  сифати беҳтар               ║
-// ╚══════════════════════════════════════════════════════╝
+// ============================
+// ТАҒЙИР ДОДАН — ин ҷоро иваз кун барои сифати видео:
 const VIDEO_QUALITY = {
-    height: 360,          // ← ҲАМИН РАҚАМРО ИВАЗ КУН
+    height: 480,         // ← 240 | 360 | 480 | 720
     crop: 'scale',
-    quality: 'auto:low',  // ← ҲАМИН ҲАМРО
+    quality: 'auto:low', // ← 'auto:eco' | 'auto:low' | 'auto:good'
     format: 'mp4'
 };
+// ============================
 
-// №17 — Media storage (сурат + видео)
 const mediaStorage = new CloudinaryStorage({
     cloudinary,
     params: async (req, file) => {
@@ -47,14 +41,13 @@ const mediaStorage = new CloudinaryStorage({
             resource_type: isVideo ? 'video' : 'image',
             folder: 'chat-media',
             public_id: `media_${Date.now()}_${Math.round(Math.random() * 1e9)}`,
-            // Видеоро фишурда дар Cloudinary захира мекунад
-            ...(isVideo ? { transformation: [VIDEO_QUALITY] } : {})
+            ...(isVideo ? { chunk_size: 6000000 } : {})
         };
     }
 });
 
 const upload = multer({ storage: voiceStorage, limits: { fileSize: 10 * 1024 * 1024 } });
-const mediaUpload = multer({ storage: mediaStorage, limits: { fileSize: 50 * 1024 * 1024 } });
+const mediaUpload = multer({ storage: mediaStorage, limits: { fileSize: 100 * 1024 * 1024 } });
 
 const authMiddleware = (req, res, next) => {
     try {
@@ -64,7 +57,7 @@ const authMiddleware = (req, res, next) => {
         req.username = decoded.username;
         next();
     } catch (err) {
-        return res.status(401).json({ message: 'Токен нодуруст ё муддаташ гузаштааст!' });
+        return res.status(401).json({ message: 'Токен нодуруст!' });
     }
 };
 
@@ -81,10 +74,7 @@ router.get('/:receiver', authMiddleware, async (req, res) => {
             ]
         };
         if (before) query.timestamp = { $lt: new Date(before) };
-        const messages = await Message.find(query)
-            .sort({ timestamp: -1 })
-            .limit(PAGE_SIZE)
-            .lean();
+        const messages = await Message.find(query).sort({ timestamp: -1 }).limit(PAGE_SIZE).lean();
         const filtered = messages.filter(msg => {
             if (msg.sender === req.username && msg.deletedBySender) return false;
             if (msg.receiver === req.username && msg.deletedByReceiver) return false;
@@ -100,27 +90,25 @@ router.get('/:receiver', authMiddleware, async (req, res) => {
 router.post('/send', authMiddleware, async (req, res) => {
     try {
         const { receiver, body, replyToId } = req.body;
-        if (!receiver || !body)
-            return res.status(400).json({ message: 'Маълумот нопурра!' });
+        if (!receiver || !body) return res.status(400).json({ message: 'Маълумот нопурра!' });
+
+        // Блок санҷидан
+        const receiverUser = await User.findOne({ username: receiver });
+        if (receiverUser && receiverUser.blockedUsers.includes(req.username)) {
+            return res.status(403).json({ message: 'Ин корбар шуморо блок кардааст!' });
+        }
+
         let replyData = null;
         if (replyToId && !replyToId.startsWith('temp_')) {
             const replyMsg = await Message.findById(replyToId).catch(() => null);
             if (replyMsg) {
                 replyData = {
-                    _id: replyMsg._id.toString(),
-                    sender: replyMsg.sender,
-                    body: replyMsg.type === 'voice' ? '' : (replyMsg.body || ''),
-                    type: replyMsg.type
+                    _id: replyMsg._id.toString(), sender: replyMsg.sender,
+                    body: replyMsg.type === 'voice' ? '' : (replyMsg.body || ''), type: replyMsg.type
                 };
             }
         }
-        const message = new Message({
-            sender: req.username,
-            receiver,
-            type: 'text',
-            body: body.substring(0, 4000),
-            replyTo: replyData
-        });
+        const message = new Message({ sender: req.username, receiver, type: 'text', body: body.substring(0, 4000), replyTo: replyData });
         await message.save();
         res.json(message);
     } catch (err) {
@@ -140,66 +128,168 @@ router.post('/voice', authMiddleware, upload.any(), async (req, res) => {
             const replyMsg = await Message.findById(replyToId).catch(() => null);
             if (replyMsg) {
                 replyData = {
-                    _id: replyMsg._id.toString(),
-                    sender: replyMsg.sender,
-                    body: replyMsg.type === 'voice' ? '' : (replyMsg.body || ''),
-                    type: replyMsg.type
+                    _id: replyMsg._id.toString(), sender: replyMsg.sender,
+                    body: replyMsg.type === 'voice' ? '' : (replyMsg.body || ''), type: replyMsg.type
                 };
             }
         }
         const voiceUrl = file.path || file.secure_url;
         const message = new Message({
-            sender: req.username,
-            receiver,
-            type: 'voice',
-            voiceUrl,
-            duration: Math.min(parseInt(duration) || 0, 300),
-            replyTo: replyData
+            sender: req.username, receiver, type: 'voice', voiceUrl,
+            duration: Math.min(parseInt(duration) || 0, 300), replyTo: replyData
         });
         await message.save();
         res.json(message);
     } catch (err) {
-        res.status(500).json({ message: 'Хатогӣ ҳангоми боркунӣ: ' + err.message });
+        res.status(500).json({ message: 'Хатогӣ: ' + err.message });
     }
 });
 
-// №17 — Сурат / Видео фиристодан
+// Медиа (сурат/видео)
 router.post('/media', authMiddleware, mediaUpload.single('media'), async (req, res) => {
     try {
         const { receiver, replyToId } = req.body;
         if (!req.file) return res.status(400).json({ message: 'Файл нест!' });
         if (!receiver) return res.status(400).json({ message: 'Гиранда нест!' });
-        const mediaUrl = req.file.path || req.file.secure_url;
+        const rawUrl = req.file.path || req.file.secure_url;
         const isVideo = req.file.mimetype && req.file.mimetype.startsWith('video/');
-
-        // Барои видео — thumbnail (poster) Cloudinary
+        let mediaUrl = rawUrl;
         let thumbUrl = '';
-        if (isVideo && mediaUrl) {
-            thumbUrl = mediaUrl.replace('/upload/', '/upload/so_0,f_jpg/').replace(/\.[^/.]+$/, '.jpg');
+        if (isVideo && rawUrl) {
+            const q = `h_${VIDEO_QUALITY.height},c_${VIDEO_QUALITY.crop},q_${VIDEO_QUALITY.quality},f_${VIDEO_QUALITY.format}`;
+            mediaUrl = rawUrl.replace('/upload/', `/upload/${q}/`);
+            thumbUrl = rawUrl.replace('/upload/', '/upload/so_0,f_jpg/').replace(/\.[^/.]+$/, '.jpg');
         }
-
         let replyData = null;
         if (replyToId && !replyToId.startsWith('temp_')) {
             const replyMsg = await Message.findById(replyToId).catch(() => null);
             if (replyMsg) {
                 replyData = {
-                    _id: replyMsg._id.toString(),
-                    sender: replyMsg.sender,
-                    body: replyMsg.type === 'voice' ? '' : (replyMsg.body || ''),
-                    type: replyMsg.type
+                    _id: replyMsg._id.toString(), sender: replyMsg.sender,
+                    body: replyMsg.type === 'voice' ? '' : (replyMsg.body || ''), type: replyMsg.type
                 };
             }
         }
         const message = new Message({
-            sender: req.username,
-            receiver,
-            type: isVideo ? 'video' : 'image',
-            mediaUrl,
-            thumbUrl,
-            replyTo: replyData
+            sender: req.username, receiver, type: isVideo ? 'video' : 'image',
+            mediaUrl, thumbUrl, replyTo: replyData
         });
         await message.save();
         res.json(message);
+    } catch (err) {
+        res.status(500).json({ message: 'Хатогӣ: ' + err.message });
+    }
+});
+
+// Иваз кардани паём
+router.put('/edit/:id', authMiddleware, async (req, res) => {
+    try {
+        const { body } = req.body;
+        if (!body || !body.trim()) return res.status(400).json({ message: 'Матн холӣ аст!' });
+        const message = await Message.findById(req.params.id);
+        if (!message) return res.status(404).json({ message: 'Паём ёфт нашуд!' });
+        if (message.sender !== req.username) return res.status(403).json({ message: 'Ҳуқуқ надоред!' });
+        if (message.type !== 'text') return res.status(400).json({ message: 'Танҳо матнро иваз кардан мумкин!' });
+        message.body = body.trim().substring(0, 4000);
+        message.edited = true;
+        message.editedAt = new Date();
+        await message.save();
+        res.json(message);
+    } catch (err) {
+        res.status(500).json({ message: 'Хатогӣ: ' + err.message });
+    }
+});
+
+// Сабт кардани паём
+router.put('/pin/:id', authMiddleware, async (req, res) => {
+    try {
+        const message = await Message.findById(req.params.id);
+        if (!message) return res.status(404).json({ message: 'Паём ёфт нашуд!' });
+        if (message.sender !== req.username && message.receiver !== req.username) {
+            return res.status(403).json({ message: 'Ҳуқуқ надоред!' });
+        }
+        // Аввал ҳамаи паёмҳои ин чатро unspin кун
+        const otherUser = message.sender === req.username ? message.receiver : message.sender;
+        await Message.updateMany({
+            $or: [
+                { sender: req.username, receiver: otherUser },
+                { sender: otherUser, receiver: req.username }
+            ]
+        }, { pinned: false });
+        // Ин паёмро pin кун (toggle)
+        const wasPinned = message.pinned;
+        if (!wasPinned) {
+            message.pinned = true;
+            await message.save();
+        }
+        res.json({ pinned: !wasPinned, message });
+    } catch (err) {
+        res.status(500).json({ message: 'Хатогӣ: ' + err.message });
+    }
+});
+
+// Паёми сабтшуда
+router.get('/pinned/:with', authMiddleware, async (req, res) => {
+    try {
+        const msg = await Message.findOne({
+            $or: [
+                { sender: req.username, receiver: req.params.with, pinned: true },
+                { sender: req.params.with, receiver: req.username, pinned: true }
+            ]
+        });
+        res.json(msg || null);
+    } catch (err) {
+        res.status(500).json({ message: 'Хатогӣ: ' + err.message });
+    }
+});
+
+// Ҷустуҷӯи паёмҳо
+router.get('/search/:with', authMiddleware, async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q || q.trim().length < 2) return res.json([]);
+        const messages = await Message.find({
+            $or: [
+                { sender: req.username, receiver: req.params.with },
+                { sender: req.params.with, receiver: req.username }
+            ],
+            type: 'text',
+            body: { $regex: q.trim(), $options: 'i' },
+            deletedBySender: { $ne: true },
+            deletedByReceiver: { $ne: true }
+        }).sort({ timestamp: -1 }).limit(20).lean();
+        res.json(messages);
+    } catch (err) {
+        res.status(500).json({ message: 'Хатогӣ: ' + err.message });
+    }
+});
+
+// Содиркунии чат (export)
+router.get('/export/:with', authMiddleware, async (req, res) => {
+    try {
+        const allMsgs = await Message.find({
+            $or: [
+                { sender: req.username, receiver: req.params.with },
+                { sender: req.params.with, receiver: req.username }
+            ]
+        }).sort({ timestamp: 1 }).lean();
+
+        let text = `Чати ${req.username} ва ${req.params.with}\n`;
+        text += `Содиркунӣ: ${new Date().toLocaleString('tg')}\n`;
+        text += '='.repeat(40) + '\n\n';
+
+        allMsgs.forEach(msg => {
+            const time = new Date(msg.timestamp).toLocaleString('ru');
+            const body = msg.type === 'voice' ? '[Голосовой паём]'
+                : msg.type === 'image' ? '[Сурат]'
+                : msg.type === 'video' ? '[Видео]'
+                : msg.body;
+            text += `[${time}] ${msg.sender}: ${body}\n`;
+        });
+
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="chat_${req.params.with}.txt"`);
+        res.send(text);
     } catch (err) {
         res.status(500).json({ message: 'Хатогӣ: ' + err.message });
     }
@@ -211,14 +301,10 @@ router.put('/reaction/:id', authMiddleware, async (req, res) => {
         const { reaction, side } = req.body;
         const message = await Message.findById(req.params.id);
         if (!message) return res.status(404).json({ message: 'Паём ёфт нашуд!' });
-        if (message.sender !== req.username && message.receiver !== req.username)
-            return res.status(403).json({ message: 'Ҳуқуқ надоред!' });
+        if (message.sender !== req.username && message.receiver !== req.username) return res.status(403).json({ message: 'Ҳуқуқ надоред!' });
         const update = {};
-        if (side === 'sender') {
-            update.reactionBySender = message.reactionBySender === reaction ? '' : reaction;
-        } else {
-            update.reactionByReceiver = message.reactionByReceiver === reaction ? '' : reaction;
-        }
+        if (side === 'sender') update.reactionBySender = message.reactionBySender === reaction ? '' : reaction;
+        else update.reactionByReceiver = message.reactionByReceiver === reaction ? '' : reaction;
         const updated = await Message.findByIdAndUpdate(req.params.id, update, { new: true });
         res.json(updated);
     } catch (err) {
@@ -229,16 +315,14 @@ router.put('/reaction/:id', authMiddleware, async (req, res) => {
 // Seen
 router.put('/seen/:id', authMiddleware, async (req, res) => {
     try {
-        const message = await Message.findByIdAndUpdate(
-            req.params.id, { seen: true }, { new: true }
-        );
+        const message = await Message.findByIdAndUpdate(req.params.id, { seen: true }, { new: true });
         res.json(message);
     } catch (err) {
         res.status(500).json({ message: 'Хатогӣ: ' + err.message });
     }
 });
 
-// Ҳазф
+// Ҳазфи якта
 router.delete('/:id', authMiddleware, async (req, res) => {
     try {
         const { deleteFor } = req.body;
@@ -246,24 +330,22 @@ router.delete('/:id', authMiddleware, async (req, res) => {
         if (!message) return res.status(404).json({ message: 'Паём ёфт нашуд!' });
         const isSender = message.sender === req.username;
         const isReceiver = message.receiver === req.username;
-        if (!isSender && !isReceiver)
-            return res.status(403).json({ message: 'Ҳуқуқ надоред!' });
+        if (!isSender && !isReceiver) return res.status(403).json({ message: 'Ҳуқуқ надоред!' });
 
-        const deleteFromCloudinary = async (url, type = 'video') => {
+        const destroy = async (url, type = 'video') => {
             if (!url) return;
             try {
-                const urlParts = url.split('/');
-                const fileWithExt = urlParts[urlParts.length - 1];
-                const folder = type === 'image' ? 'chat-media' : type === 'image_media' ? 'chat-media' : 'chat-voice-messages';
-                const publicId = folder + '/' + fileWithExt.split('.')[0];
-                await cloudinary.uploader.destroy(publicId, { resource_type: type === 'video' ? 'video' : 'image' });
-            } catch (e) {}
+                const parts = url.split('/');
+                const file = parts[parts.length - 1];
+                const folder = type === 'image' ? 'chat-media' : type === 'video' ? 'chat-media' : 'chat-voice-messages';
+                await cloudinary.uploader.destroy(folder + '/' + file.split('.')[0], { resource_type: type === 'image' ? 'image' : 'video' });
+            } catch(e) {}
         };
 
         if (deleteFor === 'all' && isSender) {
-            if (message.type === 'voice') await deleteFromCloudinary(message.voiceUrl, 'video');
-            if (message.type === 'image') await deleteFromCloudinary(message.mediaUrl, 'image');
-            if (message.type === 'video') await deleteFromCloudinary(message.mediaUrl, 'video');
+            if (message.type === 'voice') await destroy(message.voiceUrl, 'video');
+            if (message.type === 'image') await destroy(message.mediaUrl, 'image');
+            if (message.type === 'video') await destroy(message.mediaUrl, 'video');
             await Message.findByIdAndDelete(req.params.id);
             return res.json({ success: true, deletedFor: 'all' });
         }
@@ -272,13 +354,12 @@ router.delete('/:id', authMiddleware, async (req, res) => {
         else message.deletedByReceiver = true;
 
         if (message.deletedBySender && message.deletedByReceiver) {
-            if (message.type === 'voice') await deleteFromCloudinary(message.voiceUrl, 'video');
-            if (message.type === 'image') await deleteFromCloudinary(message.mediaUrl, 'image');
-            if (message.type === 'video') await deleteFromCloudinary(message.mediaUrl, 'video');
+            if (message.type === 'voice') await destroy(message.voiceUrl, 'video');
+            if (message.type === 'image') await destroy(message.mediaUrl, 'image');
+            if (message.type === 'video') await destroy(message.mediaUrl, 'video');
             await Message.findByIdAndDelete(req.params.id);
             return res.json({ success: true, deletedFor: 'both' });
         }
-
         await message.save();
         return res.json({ success: true, deletedFor: 'me' });
     } catch (err) {
@@ -286,59 +367,51 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     }
 });
 
-module.exports = router;
-
-// №Multi-select — Якчанд паёмро якбора ҳазф
+// Ҳазфи якчанд паём (bulk)
 router.post('/bulk-delete', authMiddleware, async (req, res) => {
     try {
         const { ids, deleteFor } = req.body;
-        if (!Array.isArray(ids) || ids.length === 0)
-            return res.status(400).json({ message: 'Паёмҳо интихоб нашуданд!' });
+        if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ message: 'Паёмҳо интихоб нашуданд!' });
 
-        const deleteFromCloudinary = async (url, type = 'video') => {
+        const destroy = async (url, type = 'video') => {
             if (!url) return;
             try {
-                const urlParts = url.split('/');
-                const fileWithExt = urlParts[urlParts.length - 1];
-                const folder = type === 'image' ? 'chat-media' : 'chat-voice-messages';
-                const publicId = folder + '/' + fileWithExt.split('.')[0];
-                await cloudinary.uploader.destroy(publicId, { resource_type: type === 'video' ? 'video' : 'image' });
-            } catch (e) {}
+                const parts = url.split('/');
+                const file = parts[parts.length - 1];
+                const folder = type === 'image' ? 'chat-media' : type === 'video' ? 'chat-media' : 'chat-voice-messages';
+                await cloudinary.uploader.destroy(folder + '/' + file.split('.')[0], { resource_type: type === 'image' ? 'image' : 'video' });
+            } catch(e) {}
         };
 
         const results = [];
         for (const id of ids) {
-            const message = await Message.findById(id);
-            if (!message) continue;
-            const isSender = message.sender === req.username;
-            const isReceiver = message.receiver === req.username;
+            const msg = await Message.findById(id);
+            if (!msg) continue;
+            const isSender = msg.sender === req.username;
+            const isReceiver = msg.receiver === req.username;
             if (!isSender && !isReceiver) continue;
 
             if (deleteFor === 'all' && isSender) {
-                if (message.type === 'voice') await deleteFromCloudinary(message.voiceUrl, 'video');
-                if (message.type === 'image') await deleteFromCloudinary(message.mediaUrl, 'image');
-                if (message.type === 'video') await deleteFromCloudinary(message.mediaUrl, 'video');
+                if (msg.type === 'voice') await destroy(msg.voiceUrl, 'video');
+                if (msg.type === 'image') await destroy(msg.mediaUrl, 'image');
+                if (msg.type === 'video') await destroy(msg.mediaUrl, 'video');
                 await Message.findByIdAndDelete(id);
                 results.push({ id, deletedFor: 'all' });
                 continue;
             }
-
-            if (isSender) message.deletedBySender = true;
-            else message.deletedByReceiver = true;
-
-            if (message.deletedBySender && message.deletedByReceiver) {
-                if (message.type === 'voice') await deleteFromCloudinary(message.voiceUrl, 'video');
-                if (message.type === 'image') await deleteFromCloudinary(message.mediaUrl, 'image');
-                if (message.type === 'video') await deleteFromCloudinary(message.mediaUrl, 'video');
+            if (isSender) msg.deletedBySender = true;
+            else msg.deletedByReceiver = true;
+            if (msg.deletedBySender && msg.deletedByReceiver) {
+                if (msg.type === 'voice') await destroy(msg.voiceUrl, 'video');
+                if (msg.type === 'image') await destroy(msg.mediaUrl, 'image');
+                if (msg.type === 'video') await destroy(msg.mediaUrl, 'video');
                 await Message.findByIdAndDelete(id);
                 results.push({ id, deletedFor: 'both' });
                 continue;
             }
-
-            await message.save();
+            await msg.save();
             results.push({ id, deletedFor: 'me' });
         }
-
         res.json({ success: true, results });
     } catch (err) {
         res.status(500).json({ message: 'Хатогӣ: ' + err.message });

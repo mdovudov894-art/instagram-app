@@ -12,20 +12,67 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, { cors: { origin: '*' } });
 
+// ========== RATE LIMITER (бе npm, дар хотира) ==========
+function createRateLimiter(windowMs, maxRequests, message) {
+    const map = new Map();
+    setInterval(() => {
+        const now = Date.now();
+        for (const [key, data] of map.entries()) {
+            if (now - data.start > windowMs) map.delete(key);
+        }
+    }, windowMs);
+    return (req, res, next) => {
+        const key = req.ip || req.connection.remoteAddress;
+        const now = Date.now();
+        if (!map.has(key)) { map.set(key, { count: 1, start: now }); return next(); }
+        const data = map.get(key);
+        if (now - data.start > windowMs) { map.set(key, { count: 1, start: now }); return next(); }
+        if (data.count >= maxRequests) return res.status(429).json({ message });
+        data.count++;
+        next();
+    };
+}
+
+const apiLimiter = createRateLimiter(15 * 60 * 1000, 200, 'Хеле зиёд дархост! Лутфан 15 дақиқа интизор шавед.');
+const msgLimiter = createRateLimiter(60 * 1000, 40, 'Хеле зиёд паём! Лутфан 1 дақиқа интизор шавед.');
+const authLimiter = createRateLimiter(15 * 60 * 1000, 10, 'Хеле зиёд кӯшишҳо! Лутфан 15 дақиқа интизор шавед.');
+
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const authRoutes = require('./routes/auth');
 const messageRoutes = require('./routes/messages');
-app.use('/api/auth', authRoutes);
-app.use('/api/messages', messageRoutes);
+const adminRoutes = require('./routes/admin');
+
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+app.use('/api/auth', apiLimiter, authRoutes);
+app.use('/api/messages', msgLimiter, messageRoutes);
+app.use('/api/admin', adminRoutes);
+
+// Admin panel
+app.get('/admin', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
 
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('✅ MongoDB пайваст шуд!'))
     .catch(err => console.log('❌ Хатогӣ:', err));
 
-const onlineUsers = new Map(); // username -> socketId
+const onlineUsers = new Map();
+const User = require('./models/User');
+
+async function canSeeOnline(viewer, target) {
+    try {
+        const t = await User.findOne({ username: target }, { onlineVisibility: 1, onlineVisibleTo: 1 }).lean();
+        if (!t) return false;
+        if (t.onlineVisibility === 'everyone') return true;
+        if (t.onlineVisibility === 'nobody') return false;
+        return (t.onlineVisibleTo || []).includes(viewer);
+    } catch(e) { return true; }
+}
 
 io.use((socket, next) => {
     try {
@@ -39,30 +86,14 @@ io.use((socket, next) => {
     }
 });
 
-// №13 — Санҷидани онлайн visibility
-const User = require('./models/User');
-
-async function canSeeOnline(viewerUsername, targetUsername) {
-    try {
-        const target = await User.findOne({ username: targetUsername }, { onlineVisibility: 1, onlineVisibleTo: 1 }).lean();
-        if (!target) return false;
-        if (target.onlineVisibility === 'everyone') return true;
-        if (target.onlineVisibility === 'nobody') return false;
-        if (target.onlineVisibility === 'selected') {
-            return (target.onlineVisibleTo || []).includes(viewerUsername);
-        }
-        return true;
-    } catch(e) { return true; }
-}
-
 io.on('connection', async (socket) => {
     const username = socket.username;
-    console.log('👤 Пайваст шуд:', username);
+    console.log('👤 Пайваст:', username);
 
     socket.join(username);
     onlineUsers.set(username, socket.id);
 
-    // Ба ҳама хабар деҳ (visibility санҷида мешавад)
+    // Online notification
     const allSockets = await io.fetchSockets();
     for (const s of allSockets) {
         if (s.username && s.username !== username) {
@@ -70,8 +101,6 @@ io.on('connection', async (socket) => {
             if (canSee) s.emit('userOnline', { username });
         }
     }
-
-    // Рӯйхати онлайнҳо — танҳо онҳое ки иҷозат доранд
     const onlineList = [];
     for (const [u] of onlineUsers) {
         if (u !== username) {
@@ -85,66 +114,76 @@ io.on('connection', async (socket) => {
         try {
             io.to(data.receiver).emit('newMessage', data);
             io.to(data.sender).emit('newMessage', data);
-        } catch (err) {}
+        } catch(e) {}
     });
 
     socket.on('reaction', (data) => {
         try {
             io.to(data.receiver).emit('reactionUpdate', data);
             io.to(data.sender).emit('reactionUpdate', data);
-        } catch (err) {}
+        } catch(e) {}
     });
 
     socket.on('deleteMessage', (data) => {
         try {
             io.to(data.receiver).emit('messageDeleted', data);
             io.to(data.sender).emit('messageDeleted', data);
-        } catch (err) {}
+        } catch(e) {}
+    });
+
+    // Иваз кардани паём
+    socket.on('editMessage', (data) => {
+        try {
+            io.to(data.receiver).emit('messageEdited', data);
+            io.to(data.sender).emit('messageEdited', data);
+        } catch(e) {}
+    });
+
+    // Сабт кардани паём
+    socket.on('pinMessage', (data) => {
+        try {
+            io.to(data.receiver).emit('messagePinned', data);
+            io.to(data.sender).emit('messagePinned', data);
+        } catch(e) {}
     });
 
     socket.on('typing', (data) => {
-        try {
-            io.to(data.receiver).emit('userTyping', { sender: data.sender });
-        } catch (err) {}
+        try { io.to(data.receiver).emit('userTyping', { sender: data.sender }); } catch(e) {}
     });
-
     socket.on('stopTyping', (data) => {
-        try {
-            io.to(data.receiver).emit('userStopTyping', { sender: data.sender });
-        } catch (err) {}
+        try { io.to(data.receiver).emit('userStopTyping', { sender: data.sender }); } catch(e) {}
     });
 
-    // №8 — Голосовой карда истодааст
     socket.on('voiceRecording', (data) => {
-        try {
-            io.to(data.receiver).emit('userVoiceRecording', { sender: data.sender });
-        } catch (err) {}
+        try { io.to(data.receiver).emit('userVoiceRecording', { sender: data.sender }); } catch(e) {}
     });
-
     socket.on('stopVoiceRecording', (data) => {
-        try {
-            io.to(data.receiver).emit('userStopVoiceRecording', { sender: data.sender });
-        } catch (err) {}
-    });
-
-    // №3 — Real-time аватар навсозӣ
-    socket.on('avatarChanged', (data) => {
-        try {
-            socket.broadcast.emit('userAvatarChanged', { username: data.username, avatar: data.avatar });
-        } catch(e) {}
-    });
-
-    // Медиа фиристода истода — гирандаро огоҳ кун
-    socket.on('mediaUploading', (data) => {
-        try {
-            io.to(data.receiver).emit('mediaUploading', { sender: data.sender, isVideo: data.isVideo });
-        } catch(e) {}
+        try { io.to(data.receiver).emit('userStopVoiceRecording', { sender: data.sender }); } catch(e) {}
     });
 
     socket.on('messageSeen', (data) => {
+        try { io.to(data.sender).emit('messageSeenUpdate', { msgId: data.msgId }); } catch(e) {}
+    });
+
+    socket.on('mediaUploading', (data) => {
+        try { io.to(data.receiver).emit('mediaUploading', { sender: data.sender, isVideo: data.isVideo }); } catch(e) {}
+    });
+
+    socket.on('avatarChanged', (data) => {
+        try { socket.broadcast.emit('userAvatarChanged', { username: data.username, avatar: data.avatar }); } catch(e) {}
+    });
+
+    socket.on('updateVisibility', async (data) => {
         try {
-            io.to(data.sender).emit('messageSeenUpdate', { msgId: data.msgId });
-        } catch (err) {}
+            const allS = await io.fetchSockets();
+            for (const s of allS) {
+                if (s.username && s.username !== username) {
+                    const canSee = await canSeeOnline(s.username, username);
+                    if (canSee) s.emit('userOnline', { username });
+                    else s.emit('userOffline', { username });
+                }
+            }
+        } catch(e) {}
     });
 
     socket.on('changeUsername', (data) => {
@@ -158,21 +197,6 @@ io.on('connection', async (socket) => {
             io.emit('userOffline', { username: oldUsername });
             io.emit('userOnline', { username: newUsername });
             io.emit('usernameChanged', { oldUsername, newUsername });
-        } catch (err) {}
-    });
-
-    // №13 — Visibility навсозӣ
-    socket.on('updateVisibility', async (data) => {
-        try {
-            // Ба ҳама онлайн статусро навсозӣ кун
-            const allS = await io.fetchSockets();
-            for (const s of allS) {
-                if (s.username && s.username !== username) {
-                    const canSee = await canSeeOnline(s.username, username);
-                    if (canSee) s.emit('userOnline', { username });
-                    else s.emit('userOffline', { username });
-                }
-            }
         } catch(e) {}
     });
 
@@ -184,8 +208,6 @@ io.on('connection', async (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`🚀 Сервер дар http://localhost:${PORT} кор мекунад`);
-});
+server.listen(PORT, () => console.log(`🚀 Сервер: http://localhost:${PORT}`));
 
 module.exports = { io };

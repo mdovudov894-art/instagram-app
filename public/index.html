@@ -93,15 +93,24 @@
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" id="searchInput" placeholder="Ҷустуҷӯ..." oninput="searchUsers()"/>
         </div>
-        <div class="users-list" id="usersList"></div>
+        <div class="users-list" id="usersList">
+            <div class="archive-row hidden" id="archiveRow" onclick="showArchivedChats()">
+                <div class="archive-icon"><i class="fa-solid fa-box-archive"></i></div>
+                <span>Архив</span>
+                <span class="archive-count" id="archiveCount"></span>
+            </div>
+        </div>
+        <button class="fab-new-chat" onclick="toggleFabMenu(event)" title="Чат/Гурӯҳи нав">
+            <i class="fa-solid fa-comment-dots"></i>
+        </button>
     </div>
 
     <!-- CHAT AREA -->
     <div class="chat-area" id="chatArea">
         <div class="chat-default" id="chatDefault">
-            <div class="chat-default-icon"><i class="fa-solid fa-comments"></i></div>
-            <h3>Хуш омадед!</h3>
-            <p>Корбореро интихоб кунед ва чат оғоз кунед</p>
+            <div class="chat-default-icon"><i class="fa-brands fa-whatsapp"></i></div>
+            <h3>ChatApp барои Desktop</h3>
+            <p>Паёмҳои худро дар инҷо фиристед ва қабул кунед.</p>
         </div>
         <div class="chat-screen hidden" id="chatScreen">
             <!-- NORMAL HEADER -->
@@ -109,7 +118,7 @@
                 <button class="back-btn" onclick="goBack()">
                     <i class="fa-solid fa-arrow-left"></i>
                 </button>
-                <div class="chat-header-info" onclick="showUserProfile(currentChat)">
+                <div class="chat-header-info" onclick="headerInfoClick()">
                     <div class="chat-avatar" id="chatAvatar"></div>
                     <div class="chat-header-text">
                         <span id="chatUsername"></span>
@@ -181,8 +190,10 @@
                 <div class="input-row" id="inputNormal">
                     <input type="file" id="mediaFileInput" accept="image/*,video/*" multiple
                         style="display:none" onchange="sendMedia(this)"/>
-                    <button class="media-btn" onclick="document.getElementById('mediaFileInput').click()" title="Сурат/Видео">
-                        <i class="fa-solid fa-image"></i>
+                    <input type="file" id="documentFileInput" multiple
+                        style="display:none" onchange="sendDocument(this)"/>
+                    <button class="media-btn" onclick="toggleAttachMenu(event)" title="Замима">
+                        <i class="fa-solid fa-paperclip"></i>
                     </button>
                     <textarea id="messageInput" placeholder="Паём нависед..." rows="1"
                         oninput="autoResize(this); handleTyping()"
@@ -214,8 +225,26 @@
     </div>
 </div>
 
-<!-- CHAT OPTIONS DROPDOWN -->
+<!-- CHAT OPTIONS DROPDOWN (шахсӣ) -->
 <div class="dropdown-menu hidden" id="chatOptionsMenu">
+    <button onclick="hideChatOptions(); showGalleryModal()">
+        <i class="fa-solid fa-images"></i> Медиа ва Файлҳо
+    </button>
+    <button onclick="hideChatOptions(); showStarredModal()">
+        <i class="fa-solid fa-star"></i> Паёмҳои star-шуда
+    </button>
+    <button onclick="hideChatOptions(); showDisappearingModal()">
+        <i class="fa-solid fa-clock-rotate-left"></i> Паёми нопадидшаванда
+    </button>
+    <button onclick="toggleMuteCurrentChat(); hideChatOptions()">
+        <i class="fa-solid fa-bell-slash"></i> <span id="muteBtnText">Бесадо кардан</span>
+    </button>
+    <button onclick="togglePinCurrentChat(); hideChatOptions()">
+        <i class="fa-solid fa-thumbtack"></i> <span id="pinChatBtnText">Сабт дар боло</span>
+    </button>
+    <button onclick="archiveCurrentChat(); hideChatOptions()">
+        <i class="fa-solid fa-box-archive"></i> Архив кардан
+    </button>
     <button onclick="blockCurrentUser(); hideChatOptions()">
         <i class="fa-solid fa-ban"></i> <span id="blockBtnText">Блок кун</span>
     </button>
@@ -224,6 +253,37 @@
     </button>
     <button onclick="hideChatOptions(); showChangeUsername()">
         <i class="fa-solid fa-pen"></i> Иваз кардани ном
+    </button>
+</div>
+
+<!-- GROUP OPTIONS DROPDOWN -->
+<div class="dropdown-menu hidden" id="groupOptionsMenu">
+    <button onclick="hideGroupOptions(); showGroupInfo()">
+        <i class="fa-solid fa-circle-info"></i> Маълумоти гурӯҳ
+    </button>
+    <button onclick="hideGroupOptions(); showGalleryModal()">
+        <i class="fa-solid fa-images"></i> Медиа ва Файлҳо
+    </button>
+    <button onclick="hideGroupOptions(); showStarredModal()">
+        <i class="fa-solid fa-star"></i> Паёмҳои star-шуда
+    </button>
+    <button onclick="hideGroupOptions(); showDisappearingModal()">
+        <i class="fa-solid fa-clock-rotate-left"></i> Паёми нопадидшаванда
+    </button>
+    <button onclick="toggleMuteCurrentChat(); hideGroupOptions()">
+        <i class="fa-solid fa-bell-slash"></i> <span id="muteGroupBtnText">Бесадо кардан</span>
+    </button>
+    <button onclick="togglePinCurrentChat(); hideGroupOptions()">
+        <i class="fa-solid fa-thumbtack"></i> <span id="pinGroupBtnText">Сабт дар боло</span>
+    </button>
+    <button onclick="archiveCurrentChat(); hideGroupOptions()">
+        <i class="fa-solid fa-box-archive"></i> Архив кардан
+    </button>
+    <button onclick="exportGroupChat(); hideGroupOptions()">
+        <i class="fa-solid fa-file-export"></i> Содиркунии чат
+    </button>
+    <button onclick="hideGroupOptions(); leaveCurrentGroup()">
+        <i class="fa-solid fa-right-from-bracket"></i> Тарк кардани гурӯҳ
     </button>
 </div>
 
@@ -342,12 +402,31 @@
             <input type="file" id="avatarFileInput" accept="image/*" style="display:none" onchange="uploadAvatar(this)"/>
             <p class="profile-username" id="profileUsername"></p>
             <button class="profile-link-btn" onclick="hideProfile(); showChangeUsername()">
-                <i class="fa-solid fa-pen"></i> Иваз кардани ном
+                <i class="fa-solid fa-pen"></i> Иваз кардани ном (login)
             </button>
         </div>
+
         <div class="settings-section">
-            <h4>🔒 Онлайн будан</h4>
-            <p class="settings-desc">Кӣ онлайн буданатонро бубинад?</p>
+            <h4>👤 Номи намоишӣ (Display Name)</h4>
+            <div class="input-group" style="margin-top:8px">
+                <input type="text" id="displayNameInput" placeholder="Номи намоишӣ" maxlength="50"
+                    style="background:none;border:none;outline:none;color:var(--text);font-size:14px;width:100%"/>
+                <button class="icon-btn" onclick="saveDisplayName()" style="min-width:30px"><i class="fa-solid fa-check"></i></button>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <h4>📝 Дар бораи ман (About)</h4>
+            <div class="input-group" style="margin-top:8px">
+                <input type="text" id="aboutInput" placeholder="Маълумоти мухтасар (ихтиёрӣ)" maxlength="140"
+                    style="background:none;border:none;outline:none;color:var(--text);font-size:14px;width:100%"/>
+                <button class="icon-btn" onclick="saveAbout()" style="min-width:30px"><i class="fa-solid fa-check"></i></button>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <h4>🔒 Махфият</h4>
+            <p class="settings-desc" style="margin-top:4px">Кӣ онлайн буданатонро бубинад?</p>
             <div class="settings-options">
                 <label class="settings-radio">
                     <input type="radio" name="visibility" value="everyone" onchange="saveVisibility(this)"/>
@@ -363,11 +442,98 @@
                 </label>
             </div>
             <p id="visibilityStatus" class="settings-status"></p>
+
+            <p class="settings-desc" style="margin-top:14px">Кӣ вакти охирини фаъолиятро (Last Seen) бубинад?</p>
+            <div class="settings-options">
+                <label class="settings-radio">
+                    <input type="radio" name="lastseen-visibility" value="everyone" onchange="saveLastSeenVisibility(this)"/>
+                    <span>Ҳама</span>
+                </label>
+                <label class="settings-radio">
+                    <input type="radio" name="lastseen-visibility" value="selected" onchange="showLastSeenPicker(this)"/>
+                    <span>Танҳо интихобшудагон...</span>
+                </label>
+                <label class="settings-radio">
+                    <input type="radio" name="lastseen-visibility" value="nobody" onchange="saveLastSeenVisibility(this)"/>
+                    <span>Ҳеҷ кас</span>
+                </label>
+            </div>
+
+            <p class="settings-desc" style="margin-top:14px">Кӣ расми профилро бубинад?</p>
+            <div class="settings-options">
+                <label class="settings-radio">
+                    <input type="radio" name="avatar-visibility" value="everyone" onchange="saveAvatarVisibility(this)"/>
+                    <span>Ҳама</span>
+                </label>
+                <label class="settings-radio">
+                    <input type="radio" name="avatar-visibility" value="selected" onchange="showAvatarVisibilityPicker(this)"/>
+                    <span>Танҳо интихобшудагон...</span>
+                </label>
+                <label class="settings-radio">
+                    <input type="radio" name="avatar-visibility" value="nobody" onchange="saveAvatarVisibility(this)"/>
+                    <span>Ҳеҷ кас</span>
+                </label>
+            </div>
+
+            <button class="profile-link-btn" style="margin-top:12px" onclick="showBlockedContacts()">
+                <i class="fa-solid fa-ban"></i> Корбарони блокшуда
+            </button>
         </div>
+
+        <div class="settings-section">
+            <h4>🔔 Огоҳиномаҳо</h4>
+            <label class="settings-toggle-row">
+                <span>Садо</span>
+                <input type="checkbox" id="notifSoundToggle" onchange="saveNotificationSettings()"/>
+            </label>
+            <label class="settings-toggle-row">
+                <span>Ларзиш (vibrate)</span>
+                <input type="checkbox" id="notifVibrateToggle" onchange="saveNotificationSettings()"/>
+            </label>
+        </div>
+
+        <div class="settings-section">
+            <h4>💾 Истифодаи Storage</h4>
+            <div id="storageUsageBreakdown" style="margin-top:8px"></div>
+        </div>
+
         <div class="dialog-btns" style="margin-top:16px">
             <button class="dialog-confirm" style="background:#f87171" onclick="confirmLogout()">
                 <i class="fa-solid fa-right-from-bracket"></i> Баромадан
             </button>
+        </div>
+        <div class="dialog-btns" style="margin-top:8px">
+            <button class="dialog-confirm" style="background:var(--bg3);color:var(--danger);border:1px solid var(--danger)" onclick="showDeleteAccountModal()">
+                <i class="fa-solid fa-trash"></i> Нест кардани ҳисоб
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- BLOCKED CONTACTS MODAL -->
+<div class="dialog-overlay hidden" id="blockedContactsModal">
+    <div class="dialog-box profile-modal" style="max-width:380px">
+        <div class="profile-modal-header">
+            <h3>🚫 Блокшудагон</h3>
+            <button class="icon-btn" onclick="hideBlockedContacts()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="blockedContactsList" style="max-height:50vh;overflow-y:auto"></div>
+    </div>
+</div>
+
+<!-- DELETE ACCOUNT MODAL -->
+<div class="dialog-overlay hidden" id="deleteAccountModal">
+    <div class="dialog-box" style="max-width:360px;width:92%">
+        <h3 style="font-size:15px;color:var(--danger);margin-bottom:12px"><i class="fa-solid fa-triangle-exclamation"></i> Нест кардани ҳисоб</h3>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:12px">Ин амал бебозгашт аст. Ҳамаи паёмҳои Шумо нест мешаванд. Паролро ворид кунед:</p>
+        <div class="input-group">
+            <input type="password" id="deleteAccountPassword" placeholder="Парол"
+                style="background:none;border:none;outline:none;color:var(--text);font-size:14px;width:100%"/>
+        </div>
+        <p id="deleteAccountError" class="error-msg" style="margin-top:4px"></p>
+        <div class="dialog-btns" style="margin-top:14px">
+            <button class="dialog-cancel" onclick="hideDeleteAccountModal()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--danger)" onclick="submitDeleteAccount()">Нест кардан</button>
         </div>
     </div>
 </div>
@@ -377,18 +543,6 @@
     <div class="reaction-panel" id="reactionPanel" onclick="event.stopPropagation()">
         <div class="reaction-panel-handle"></div>
         <div class="reaction-panel-content" id="reactionPanelContent"></div>
-    </div>
-</div>
-
-<!-- VISIBILITY USER PICKER -->
-<div class="dialog-overlay hidden" id="visibilityPickerOverlay">
-    <div class="dialog-box" style="max-width:340px;width:92%">
-        <h3 style="font-size:15px;color:var(--text);margin-bottom:12px">👁 Ки бубинад?</h3>
-        <div class="user-picker-list" id="visibilityUserList"></div>
-        <div class="dialog-btns" style="margin-top:12px">
-            <button class="dialog-cancel" onclick="hideVisibilityPicker()">Бекор</button>
-            <button class="dialog-confirm" style="background:var(--accent);color:#000" onclick="saveVisibilitySelected()">Захира</button>
-        </div>
     </div>
 </div>
 
@@ -413,17 +567,332 @@
     <div class="profile-viewer-avatar" id="profileViewerAvatar"></div>
     <div class="profile-viewer-name" id="profileViewerName"></div>
     <div class="profile-viewer-status" id="profileViewerStatus"></div>
+    <div class="profile-viewer-about" id="profileViewerAbout"></div>
 </div>
 
-<!-- VISIBILITY USER PICKER -->
+<!-- VISIBILITY USER PICKER (умумӣ барои online/lastseen/avatar) -->
 <div class="dialog-overlay hidden" id="visibilityPickerOverlay">
     <div class="dialog-box" style="max-width:340px;width:92%">
-        <h3 style="font-size:15px;color:var(--text);margin-bottom:12px">👁 Ки бубинад?</h3>
+        <h3 style="font-size:15px;color:var(--text);margin-bottom:12px" id="visibilityPickerTitle">👁 Ки бубинад?</h3>
         <div class="user-picker-list" id="visibilityUserList"></div>
         <div class="dialog-btns" style="margin-top:12px">
             <button class="dialog-cancel" onclick="hideVisibilityPicker()">Бекор</button>
-            <button class="dialog-confirm" style="background:var(--accent);color:#000" onclick="saveVisibilitySelected()">Захира</button>
+            <button class="dialog-confirm" style="background:var(--accent)" onclick="saveVisibilitySelected()">Захира</button>
         </div>
+    </div>
+</div>
+
+<!-- DISAPPEARING MESSAGES MODAL -->
+<div class="dialog-overlay hidden" id="disappearingModal">
+    <div class="dialog-box" style="max-width:360px;width:92%">
+        <h3 style="font-size:15px;color:var(--text);margin-bottom:6px"><i class="fa-solid fa-clock-rotate-left"></i> Паёмҳои нопадидшаванда</h3>
+        <p style="font-size:12px;color:var(--text3);margin-bottom:12px">Паёмҳои нав баъди ин мӯҳлат худкор нест мешаванд.</p>
+        <div class="mute-options-list">
+            <button class="mute-option-btn" onclick="setDisappearPreset(0)">Хомуш</button>
+            <button class="mute-option-btn" onclick="setDisappearPreset(86400)">1 рӯз</button>
+            <button class="mute-option-btn" onclick="setDisappearPreset(604800)">7 рӯз</button>
+            <button class="mute-option-btn" onclick="setDisappearPreset(7776000)">90 рӯз</button>
+        </div>
+        <p style="font-size:12px;color:var(--text3);margin:12px 0 6px">Ё худ муайян кунед:</p>
+        <div style="display:flex;gap:8px">
+            <input type="number" id="disappearCustomValue" min="1" placeholder="Адад"
+                style="flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;color:var(--text);font-size:13px;outline:none"/>
+            <select id="disappearCustomUnit" class="settings-select" style="flex:1">
+                <option value="60">Дақиқа</option>
+                <option value="3600">Соат</option>
+                <option value="86400" selected>Рӯз</option>
+            </select>
+        </div>
+        <div class="dialog-btns" style="margin-top:14px">
+            <button class="dialog-cancel" onclick="hideDisappearingModal()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent)" onclick="setDisappearCustom()">Гузоштан</button>
+        </div>
+    </div>
+</div>
+
+<!-- MESSAGE INFO MODAL -->
+<div class="dialog-overlay hidden" id="messageInfoModal">
+    <div class="dialog-box profile-modal" style="max-width:380px">
+        <div class="profile-modal-header">
+            <h3>ℹ️ Маълумоти паём</h3>
+            <button class="icon-btn" onclick="hideMessageInfo()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="messageInfoContent" style="max-height:55vh;overflow-y:auto"></div>
+    </div>
+</div>
+
+<!-- MEDIA PREVIEW MODAL (бо caption пеш аз фиристодан) -->
+<div class="dialog-overlay hidden" id="mediaPreviewModal">
+    <div class="media-preview-box">
+        <button class="media-preview-close" onclick="cancelMediaPreview()"><i class="fa-solid fa-xmark"></i></button>
+        <div class="media-preview-content" id="mediaPreviewContent"></div>
+        <div class="media-preview-footer">
+            <input type="text" id="mediaCaptionInput" placeholder="Шарҳ илова кунед (ихтиёрӣ)..." maxlength="1000"/>
+            <button class="send-btn" onclick="confirmSendMediaPreview()"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+    </div>
+</div>
+
+<!-- GALLERY MODAL -->
+<div class="dialog-overlay hidden" id="galleryModal">
+    <div class="dialog-box profile-modal" style="max-width:480px">
+        <div class="profile-modal-header">
+            <h3>🖼 Медиа</h3>
+            <button class="icon-btn" onclick="hideGalleryModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="gallery-tabs">
+            <button class="gallery-tab active" id="galleryTabMedia" onclick="switchGalleryTab('media')">Сурат/Видео</button>
+            <button class="gallery-tab" id="galleryTabDocs" onclick="switchGalleryTab('document')">Ҳуҷҷатҳо</button>
+        </div>
+        <div class="gallery-grid" id="galleryGrid"></div>
+    </div>
+</div>
+
+<!-- NEW GROUP MODAL -->
+<div class="dialog-overlay hidden" id="newGroupModal">
+    <div class="dialog-box profile-modal" style="max-width:380px">
+        <div class="profile-modal-header">
+            <h3>👥 Гурӯҳи нав</h3>
+            <button class="icon-btn" onclick="hideNewGroupModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="input-group" style="margin-bottom:12px">
+            <i class="fa-solid fa-users"></i>
+            <input type="text" id="newGroupName" placeholder="Номи гурӯҳ" autocomplete="off"
+                style="background:none;border:none;outline:none;color:var(--text);font-size:15px;width:100%"/>
+        </div>
+        <p style="font-size:12px;color:var(--text3);margin-bottom:8px">Аъзоёнро интихоб кунед:</p>
+        <div class="user-picker-list" id="newGroupMemberList"></div>
+        <p id="newGroupError" class="error-msg" style="margin-top:4px"></p>
+        <div class="dialog-btns" style="margin-top:16px">
+            <button class="dialog-cancel" onclick="hideNewGroupModal()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent);color:#000" onclick="createGroup()">Сохтан</button>
+        </div>
+    </div>
+</div>
+
+<!-- GROUP INFO MODAL -->
+<div class="dialog-overlay hidden" id="groupInfoModal">
+    <div class="dialog-box profile-modal" style="max-width:380px">
+        <div class="profile-modal-header">
+            <h3>Маълумоти гурӯҳ</h3>
+            <button class="icon-btn" onclick="hideGroupInfo()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="profile-avatar-section">
+            <div class="profile-big-avatar" id="groupInfoAvatar">
+                <div class="avatar-edit-icon" id="groupAvatarEditIcon" onclick="document.getElementById('groupAvatarFileInput').click()" style="display:none">
+                    <i class="fa-solid fa-camera"></i>
+                </div>
+            </div>
+            <input type="file" id="groupAvatarFileInput" accept="image/*" style="display:none" onchange="uploadGroupAvatar(this)"/>
+            <p class="profile-username" id="groupInfoName"></p>
+            <p style="font-size:12px;color:var(--text3)" id="groupInfoMemberCount"></p>
+            <button class="profile-link-btn hidden" id="groupRenameBtn" onclick="showRenameGroup()">
+                <i class="fa-solid fa-pen"></i> Иваз кардани ном
+            </button>
+            <div class="group-action-row hidden" id="groupActionRow">
+                <button class="profile-link-btn" id="groupInviteBtn" onclick="showInviteLink()">
+                    <i class="fa-solid fa-link"></i> Линки ҳамроҳшавӣ
+                </button>
+                <button class="profile-link-btn" onclick="showGroupPermissions()">
+                    <i class="fa-solid fa-sliders"></i> Танзимот
+                </button>
+            </div>
+        </div>
+        <div class="settings-section" id="groupDescSection">
+            <h4>📝 Тавсиф</h4>
+            <p id="groupDescText" style="font-size:13px;color:var(--text2);margin-top:6px;cursor:pointer" onclick="showEditGroupDesc()">Тавсиф илова кунед</p>
+        </div>
+        <div class="settings-section">
+            <h4 style="display:flex;align-items:center;justify-content:space-between">
+                <span>👥 Аъзоён</span>
+                <button class="icon-btn hidden" id="addMemberBtn" onclick="showAddMembers()" style="min-width:28px;min-height:28px;font-size:13px">
+                    <i class="fa-solid fa-user-plus"></i>
+                </button>
+            </h4>
+            <div class="user-picker-list" id="groupMembersList" style="margin-top:8px"></div>
+        </div>
+        <div class="dialog-btns" style="margin-top:16px">
+            <button class="dialog-confirm" style="background:#f87171" onclick="confirmLeaveGroup()">
+                <i class="fa-solid fa-right-from-bracket"></i> Тарк кардани гурӯҳ
+            </button>
+        </div>
+        <div class="dialog-btns hidden" id="deleteGroupBtnWrap" style="margin-top:8px">
+            <button class="dialog-confirm" style="background:var(--bg3);color:var(--danger);border:1px solid var(--border)" onclick="confirmDeleteGroup()">
+                <i class="fa-solid fa-trash"></i> Хазфи гурӯҳ
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ADD MEMBERS MODAL -->
+<div class="dialog-overlay hidden" id="addMembersModal">
+    <div class="dialog-box" style="max-width:360px;width:92%">
+        <h3 style="font-size:15px;color:var(--text);margin-bottom:12px">➕ Илова кардани аъзо</h3>
+        <div class="user-picker-list" id="addMembersList"></div>
+        <p id="addMembersError" class="error-msg" style="margin-top:4px"></p>
+        <div class="dialog-btns" style="margin-top:12px">
+            <button class="dialog-cancel" onclick="hideAddMembers()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent);color:#000" onclick="submitAddMembers()">Илова кун</button>
+        </div>
+    </div>
+</div>
+
+<!-- RENAME GROUP MODAL -->
+<div class="dialog-overlay hidden" id="renameGroupModal">
+    <div class="dialog-box">
+        <h3 style="margin-bottom:16px;font-size:16px;color:var(--text)">✏️ Иваз кардани номи гурӯҳ</h3>
+        <div class="input-group" style="margin-bottom:8px">
+            <i class="fa-solid fa-users"></i>
+            <input type="text" id="renameGroupInput" placeholder="Номи нав"
+                style="background:none;border:none;outline:none;color:var(--text);font-size:15px;width:100%"/>
+        </div>
+        <p id="renameGroupError" class="error-msg" style="margin-top:4px"></p>
+        <div class="dialog-btns" style="margin-top:16px">
+            <button class="dialog-cancel" onclick="hideRenameGroup()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent)" onclick="submitRenameGroup()">Захира</button>
+        </div>
+    </div>
+</div>
+
+<!-- EDIT GROUP DESCRIPTION MODAL -->
+<div class="dialog-overlay hidden" id="editGroupDescModal">
+    <div class="dialog-box">
+        <h3 style="margin-bottom:16px;font-size:16px;color:var(--text)">📝 Тавсифи гурӯҳ</h3>
+        <textarea id="editGroupDescInput" placeholder="Тавсифи гурӯҳро нависед..." rows="3"
+            style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:14px;outline:none;resize:none;font-family:inherit"></textarea>
+        <div class="dialog-btns" style="margin-top:16px">
+            <button class="dialog-cancel" onclick="hideEditGroupDesc()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent)" onclick="submitEditGroupDesc()">Захира</button>
+        </div>
+    </div>
+</div>
+
+<!-- MEMBER ACTIONS (зер кардан ба аъзо дар маълумоти гурӯҳ) -->
+<div class="dropdown-menu hidden" id="memberActionsMenu"></div>
+
+<!-- ATTACH MENU -->
+<div class="attach-menu hidden" id="attachMenu">
+    <button onclick="document.getElementById('documentFileInput').click(); hideAttachMenu()">
+        <span class="attach-icon attach-doc"><i class="fa-solid fa-file-lines"></i></span> Документ
+    </button>
+    <button onclick="document.getElementById('mediaFileInput').click(); hideAttachMenu()">
+        <span class="attach-icon attach-media"><i class="fa-solid fa-image"></i></span> Сурат/Видео
+    </button>
+</div>
+
+<!-- FAB MENU (Чат нав / Гурӯҳи нав) -->
+<div class="fab-menu hidden" id="fabMenu">
+    <button onclick="hideFabMenu(); showNewGroupModal()">
+        <span class="fab-menu-icon" style="background:#6c5ce7"><i class="fa-solid fa-users"></i></span> Гурӯҳи нав
+    </button>
+    <button onclick="hideFabMenu(); showJoinByInvite()">
+        <span class="fab-menu-icon" style="background:#0084ff"><i class="fa-solid fa-link"></i></span> Ҳамроҳ тариқи линк
+    </button>
+</div>
+
+<!-- STARRED MESSAGES MODAL -->
+<div class="dialog-overlay hidden" id="starredModal">
+    <div class="dialog-box profile-modal" style="max-width:420px">
+        <div class="profile-modal-header">
+            <h3>⭐ Паёмҳои star-шуда</h3>
+            <button class="icon-btn" onclick="hideStarredModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="starredMessagesList" style="max-height:60vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+</div>
+
+<!-- FORWARD MODAL -->
+<div class="dialog-overlay hidden" id="forwardModal">
+    <div class="dialog-box" style="max-width:380px;width:92%">
+        <h3 style="font-size:15px;color:var(--text);margin-bottom:12px">↪ Фиристодан ба...</h3>
+        <div class="user-picker-list" id="forwardUserList"></div>
+        <p id="forwardError" class="error-msg" style="margin-top:4px"></p>
+        <div class="dialog-btns" style="margin-top:12px">
+            <button class="dialog-cancel" onclick="hideForwardModal()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent)" onclick="submitForward()">Фиристодан</button>
+        </div>
+    </div>
+</div>
+
+<!-- INVITE LINK MODAL (дидани/нусха кардани линк) -->
+<div class="dialog-overlay hidden" id="inviteLinkModal">
+    <div class="dialog-box" style="max-width:380px;width:92%">
+        <h3 style="font-size:15px;color:var(--text);margin-bottom:12px"><i class="fa-solid fa-link"></i> Линки ҳамроҳшавӣ</h3>
+        <div class="input-group" style="margin-bottom:12px">
+            <input type="text" id="inviteLinkText" readonly
+                style="background:none;border:none;outline:none;color:var(--text2);font-size:13px;width:100%"/>
+        </div>
+        <div class="dialog-btns" style="margin-top:8px">
+            <button class="dialog-cancel" onclick="resetInviteLink()"><i class="fa-solid fa-rotate"></i> Нав кардан</button>
+            <button class="dialog-confirm" style="background:var(--accent)" onclick="copyInviteLink()"><i class="fa-solid fa-copy"></i> Нусха кардан</button>
+        </div>
+        <button class="dialog-cancel" style="width:100%;margin-top:8px" onclick="hideInviteLinkModal()">Пӯшидан</button>
+    </div>
+</div>
+
+<!-- JOIN BY INVITE MODAL -->
+<div class="dialog-overlay hidden" id="joinInviteModal">
+    <div class="dialog-box" style="max-width:380px;width:92%">
+        <h3 style="font-size:15px;color:var(--text);margin-bottom:12px"><i class="fa-solid fa-link"></i> Ҳамроҳ тариқи линк</h3>
+        <div class="input-group" style="margin-bottom:8px">
+            <i class="fa-solid fa-link"></i>
+            <input type="text" id="joinInviteInput" placeholder="Линк ё кодро гузоред"
+                style="background:none;border:none;outline:none;color:var(--text);font-size:14px;width:100%"/>
+        </div>
+        <p id="joinInviteError" class="error-msg" style="margin-top:4px"></p>
+        <div class="dialog-btns" style="margin-top:12px">
+            <button class="dialog-cancel" onclick="hideJoinByInvite()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent)" onclick="submitJoinByInvite()">Ҳамроҳ шудан</button>
+        </div>
+    </div>
+</div>
+
+<!-- GROUP PERMISSIONS MODAL -->
+<div class="dialog-overlay hidden" id="groupPermissionsModal">
+    <div class="dialog-box" style="max-width:380px;width:92%">
+        <h3 style="font-size:15px;color:var(--text);margin-bottom:14px"><i class="fa-solid fa-sliders"></i> Танзимоти гурӯҳ</h3>
+        <div class="settings-row">
+            <span>Кӣ метавонад паём фиристад</span>
+            <select id="sendPermSelect" class="settings-select">
+                <option value="everyone">Ҳама аъзоён</option>
+                <option value="admins">Танҳо admin-ҳо</option>
+            </select>
+        </div>
+        <div class="settings-row" style="margin-top:10px">
+            <span>Кӣ метавонад маълумотро иваз кунад</span>
+            <select id="editPermSelect" class="settings-select">
+                <option value="admins">Танҳо admin-ҳо</option>
+                <option value="everyone">Ҳама аъзоён</option>
+            </select>
+        </div>
+        <div class="dialog-btns" style="margin-top:16px">
+            <button class="dialog-cancel" onclick="hideGroupPermissions()">Бекор</button>
+            <button class="dialog-confirm" style="background:var(--accent)" onclick="submitGroupPermissions()">Захира</button>
+        </div>
+    </div>
+</div>
+
+<!-- MUTE OPTIONS MODAL -->
+<div class="dialog-overlay hidden" id="muteOptionsModal">
+    <div class="dialog-box" style="max-width:340px;width:90%">
+        <h3 style="font-size:15px;color:var(--text);margin-bottom:14px"><i class="fa-solid fa-bell-slash"></i> Бесадо кардан</h3>
+        <div class="mute-options-list">
+            <button class="mute-option-btn" onclick="submitMute(8)">8 соат</button>
+            <button class="mute-option-btn" onclick="submitMute(24*7)">1 ҳафта</button>
+            <button class="mute-option-btn" onclick="submitMute(0)">Доимӣ</button>
+        </div>
+        <button class="dialog-cancel" style="width:100%;margin-top:12px" onclick="hideMuteOptions()">Бекор</button>
+    </div>
+</div>
+
+<!-- ARCHIVED CHATS MODAL -->
+<div class="dialog-overlay hidden" id="archivedChatsModal">
+    <div class="dialog-box profile-modal" style="max-width:380px">
+        <div class="profile-modal-header">
+            <h3>📦 Архив</h3>
+            <button class="icon-btn" onclick="hideArchivedChats()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="archivedChatsList" style="max-height:60vh;overflow-y:auto"></div>
     </div>
 </div>
 

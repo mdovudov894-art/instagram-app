@@ -124,7 +124,7 @@ function appendToGroupCache(groupId, newMessages) {
     } catch (e) {}
 }
 
-const socket = io({ auth: { token } });
+const socket = io('https://instagram-app-zfye.onrender.com', { auth: { token } });
 const sentSound = new Audio('/sounds/sent.mp3');
 const receivedSound = new Audio('/sounds/reseived.mp3'); // бо ҳамон номи худат навиштам
 // ========== INIT ==========

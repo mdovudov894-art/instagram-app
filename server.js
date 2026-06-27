@@ -44,12 +44,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 const authRoutes = require('./routes/auth');
 const messageRoutes = require('./routes/messages');
 const adminRoutes = require('./routes/admin');
+const groupRoutes = require('./routes/groups');
 
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/auth', apiLimiter, authRoutes);
 app.use('/api/messages', msgLimiter, messageRoutes);
+app.use('/api/groups', msgLimiter, groupRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Admin panel
@@ -63,15 +65,30 @@ mongoose.connect(process.env.MONGO_URI)
 
 const onlineUsers = new Map();
 const User = require('./models/User');
+const Group = require('./models/Group');
 
 async function canSeeOnline(viewer, target) {
     try {
-        const t = await User.findOne({ username: target }, { onlineVisibility: 1, onlineVisibleTo: 1 }).lean();
+        const t = await User.findOne({ username: target }, { onlineVisibility: 1, onlineVisibleTo: 1, blockedUsers: 1 }).lean();
         if (!t) return false;
+        // Агар target шахси viewer-ро блок карда бошад — viewer набояд online/typing-и target-ро бубинад
+        if ((t.blockedUsers || []).includes(viewer)) return false;
         if (t.onlineVisibility === 'everyone') return true;
         if (t.onlineVisibility === 'nobody') return false;
         return (t.onlineVisibleTo || []).includes(viewer);
-    } catch(e) { return true; }
+    } catch (e) { return true; }
+}
+
+// Гирифтани ҳамаи socket-ҳои аъзоёни гурӯҳ
+async function emitToGroup(groupId, event, data, excludeUsername = null) {
+    try {
+        const group = await Group.findById(groupId).lean();
+        if (!group) return;
+        for (const member of group.members) {
+            if (excludeUsername && member === excludeUsername) continue;
+            io.to(member).emit(event, data);
+        }
+    } catch (e) {}
 }
 
 io.use((socket, next) => {
@@ -110,67 +127,73 @@ io.on('connection', async (socket) => {
     }
     socket.emit('onlineList', onlineList);
 
+    // ========== ЧАТИ ШАХСӢ ==========
     socket.on('sendMessage', (data) => {
         try {
             io.to(data.receiver).emit('newMessage', data);
             io.to(data.sender).emit('newMessage', data);
-        } catch(e) {}
+            // Агар гиранда онлайн бошад — delivered (ду тик)
+            if (onlineUsers.has(data.receiver)) {
+                io.to(data.sender).emit('messageDeliveredUpdate', { msgId: data._id });
+            }
+        } catch (e) {}
     });
 
     socket.on('reaction', (data) => {
         try {
             io.to(data.receiver).emit('reactionUpdate', data);
             io.to(data.sender).emit('reactionUpdate', data);
-        } catch(e) {}
+        } catch (e) {}
     });
 
     socket.on('deleteMessage', (data) => {
         try {
             io.to(data.receiver).emit('messageDeleted', data);
             io.to(data.sender).emit('messageDeleted', data);
-        } catch(e) {}
+        } catch (e) {}
     });
 
-    // Иваз кардани паём
     socket.on('editMessage', (data) => {
         try {
             io.to(data.receiver).emit('messageEdited', data);
             io.to(data.sender).emit('messageEdited', data);
-        } catch(e) {}
+        } catch (e) {}
     });
 
-    // Сабт кардани паём
     socket.on('pinMessage', (data) => {
         try {
             io.to(data.receiver).emit('messagePinned', data);
             io.to(data.sender).emit('messagePinned', data);
-        } catch(e) {}
+        } catch (e) {}
     });
 
-    socket.on('typing', (data) => {
-        try { io.to(data.receiver).emit('userTyping', { sender: data.sender }); } catch(e) {}
+    socket.on('typing', async (data) => {
+        try {
+            const canSee = await canSeeOnline(data.receiver, data.sender);
+            if (canSee) io.to(data.receiver).emit('userTyping', { sender: data.sender });
+        } catch (e) {}
     });
     socket.on('stopTyping', (data) => {
-        try { io.to(data.receiver).emit('userStopTyping', { sender: data.sender }); } catch(e) {}
+        try { io.to(data.receiver).emit('userStopTyping', { sender: data.sender }); } catch (e) {}
     });
 
     socket.on('voiceRecording', (data) => {
-        try { io.to(data.receiver).emit('userVoiceRecording', { sender: data.sender }); } catch(e) {}
+        try { io.to(data.receiver).emit('userVoiceRecording', { sender: data.sender }); } catch (e) {}
     });
     socket.on('stopVoiceRecording', (data) => {
-        try { io.to(data.receiver).emit('userStopVoiceRecording', { sender: data.sender }); } catch(e) {}
+        try { io.to(data.receiver).emit('userStopVoiceRecording', { sender: data.sender }); } catch (e) {}
     });
 
     socket.on('messageSeen', (data) => {
-        try { io.to(data.sender).emit('messageSeenUpdate', { msgId: data.msgId }); } catch(e) {}
+        try { io.to(data.sender).emit('messageSeenUpdate', { msgId: data.msgId }); } catch (e) {}
     });
 
     socket.on('mediaUploading', (data) => {
-        try { io.to(data.receiver).emit('mediaUploading', { sender: data.sender, isVideo: data.isVideo }); } catch(e) {}
+        try { io.to(data.receiver).emit('mediaUploading', { sender: data.sender, isVideo: data.isVideo }); } catch (e) {}
     });
 
     socket.on('avatarChanged', (data) => {
-        try { socket.broadcast.emit('userAvatarChanged', { username: data.username, avatar: data.avatar }); } catch(e) {}
+        try { socket.broadcast.emit('userAvatarChanged', { username: data.username, avatar: data.avatar }); } catch (e) {}
     });
 
     socket.on('updateVisibility', async (data) => {
@@ -183,7 +206,7 @@ io.on('connection', async (socket) => {
                     else s.emit('userOffline', { username });
                 }
             }
-        } catch(e) {}
+        } catch (e) {}
     });
 
     socket.on('changeUsername', (data) => {
@@ -197,13 +220,91 @@ io.on('connection', async (socket) => {
             io.emit('userOffline', { username: oldUsername });
             io.emit('userOnline', { username: newUsername });
             io.emit('usernameChanged', { oldUsername, newUsername });
-        } catch(e) {}
+        } catch (e) {}
     });
 
-    socket.on('disconnect', () => {
+    // ========== ЧАТИ ГУРӴ ==========
+
+    // Фиристодани паёми гурӯҳ — ба ҳамаи аъзоён
+    socket.on('sendGroupMessage', async (data) => {
+        try {
+            await emitToGroup(data.groupId, 'newGroupMessage', data);
+        } catch (e) {}
+    });
+
+    socket.on('groupReaction', async (data) => {
+        try {
+            await emitToGroup(data.groupId, 'groupReactionUpdate', data);
+        } catch (e) {}
+    });
+
+    socket.on('deleteGroupMessage', async (data) => {
+        try {
+            await emitToGroup(data.groupId, 'groupMessageDeleted', data);
+        } catch (e) {}
+    });
+
+    socket.on('editGroupMessage', async (data) => {
+        try {
+            await emitToGroup(data.groupId, 'groupMessageEdited', data);
+        } catch (e) {}
+    });
+
+    socket.on('pinGroupMessage', async (data) => {
+        try {
+            await emitToGroup(data.groupId, 'groupMessagePinned', data);
+        } catch (e) {}
+    });
+
+    socket.on('groupTyping', async (data) => {
+        try { await emitToGroup(data.groupId, 'groupUserTyping', { sender: data.sender, groupId: data.groupId }, data.sender); } catch (e) {}
+    });
+    socket.on('groupStopTyping', async (data) => {
+        try { await emitToGroup(data.groupId, 'groupUserStopTyping', { sender: data.sender, groupId: data.groupId }, data.sender); } catch (e) {}
+    });
+
+    socket.on('groupMediaUploading', async (data) => {
+        try { await emitToGroup(data.groupId, 'groupMediaUploading', { sender: data.sender, isVideo: data.isVideo, groupId: data.groupId }, data.sender); } catch (e) {}
+    });
+
+    socket.on('groupSeen', async (data) => {
+        try { await emitToGroup(data.groupId, 'groupMessageSeenUpdate', { msgId: data.msgId, username: data.username, groupId: data.groupId }, data.username); } catch (e) {}
+    });
+
+    // Гурӯҳи нав сохта шуд — огоҳ кардани ҳамаи аъзоёни нав
+    socket.on('groupCreated', async (data) => {
+        try {
+            const group = await Group.findById(data.groupId).lean();
+            if (!group) return;
+            for (const member of group.members) {
+                if (member !== username) io.to(member).emit('addedToGroup', { groupId: data.groupId });
+            }
+        } catch (e) {}
+    });
+
+    socket.on('groupMembersChanged', async (data) => {
+        try {
+            await emitToGroup(data.groupId, 'groupMembersUpdated', { groupId: data.groupId });
+            if (Array.isArray(data.newMembers)) {
+                for (const m of data.newMembers) {
+                    io.to(m).emit('addedToGroup', { groupId: data.groupId });
+                }
+            }
+            if (data.removedMember) {
+                io.to(data.removedMember).emit('removedFromGroup', { groupId: data.groupId });
+            }
+        } catch (e) {}
+    });
+
+    socket.on('groupUpdated', async (data) => {
+        try { await emitToGroup(data.groupId, 'groupInfoUpdated', { groupId: data.groupId }); } catch (e) {}
+    });
+
+    socket.on('disconnect', async () => {
         console.log('👤 Рафт:', username);
         onlineUsers.delete(username);
         io.emit('userOffline', { username });
+        try { await User.updateOne({ username }, { lastSeenAt: new Date() }); } catch (e) {}
     });
 });
 

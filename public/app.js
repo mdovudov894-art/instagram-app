@@ -202,36 +202,37 @@ function showPushNotification(sender, text, avatarUrl, groupId = null) {
     const body = groupId ? `${sender}: ${text}` : text;
     const tag = groupId ? `g_${groupId}` : sender;
 
-    const payload = {
-        title, body,
-        icon: avatarUrl || '/icon.png',
-        tag
-    };
+    const payload = { title, body, icon: avatarUrl || '/icon.png', tag, groupId, sender };
 
-    // Service Worker тариқи (production — HTTPS)
-    if (swRegistration && swRegistration.active) {
-        swRegistration.active.postMessage({ type: 'SHOW_NOTIFICATION', payload: { ...payload, groupId, sender } });
+    // Service Worker тариқи — бо active тафтиш
+    const sw = swRegistration;
+    if (sw) {
+        const worker = sw.active || sw.installing || sw.waiting;
+        if (worker) {
+            worker.postMessage({ type: 'SHOW_NOTIFICATION', payload });
+            return;
+        }
+        // Агар sw нав насб шуда бошад — пас аз тайёр шудан фиристед
+        sw.addEventListener('updatefound', () => {
+            const newWorker = sw.installing;
+            if (newWorker) {
+                newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'activated') {
+                        newWorker.postMessage({ type: 'SHOW_NOTIFICATION', payload });
+                    }
+                });
+            }
+        });
         return;
     }
 
-    // Fallback — мустақим (локал)
+    // Fallback — танҳо desktop учун
     try {
-        const notif = new Notification(title, {
-            body,
-            icon: avatarUrl || '/icon.png',
-            tag,
-            renotify: true
-        });
-        notif.onclick = () => {
-            window.focus();
-            if (groupId) openGroupChat(groupId);
-            else openChat(sender);
-            notif.close();
-        };
+        const notif = new Notification(title, { body, icon: avatarUrl || '/icon.png', tag, renotify: true });
+        notif.onclick = () => { window.focus(); if (groupId) openGroupChat(groupId); else openChat(sender); notif.close(); };
         setTimeout(() => notif.close(), 5000);
     } catch(e) {}
 }
-
 // ========== OFFLINE QUEUE ==========
 async function processQueue() {
     if (isSending || sendQueue.length === 0) return;

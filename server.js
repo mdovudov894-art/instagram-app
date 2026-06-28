@@ -35,7 +35,7 @@ function createRateLimiter(windowMs, maxRequests, message) {
 
 const apiLimiter = createRateLimiter(15 * 60 * 1000, 200, 'Хеле зиёд дархост! Лутфан 15 дақиқа интизор шавед.');
 const msgLimiter = createRateLimiter(60 * 1000, 40, 'Хеле зиёд паём! Лутфан 1 дақиқа интизор шавед.');
-const authLimiter = createRateLimiter(15 * 60 * 1000, 10, 'Хеле зиёд кӯшишҳо! Лутфан 15 дақиқа интизор шавед.');
+const authLimiter = createRateLimiter(0 * 60 * 1000, 10, 'Хеле зиёд кӯшишҳо! Лутфан интизор шавед.');
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
